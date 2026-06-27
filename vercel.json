@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "public": true,
+  "functions": {
+    "api/query.js": {
+      "maxDuration": 30,
+      "memory": 512
+    }
+  },
+  "routes": [
+    { "src": "/api/query", "dest": "/api/query.js" },
+    { "src": "/(.*)", "dest": "/public/$1" }
+  ]
+}

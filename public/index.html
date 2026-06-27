@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Fy27 Ye Pl Forecast Review",
+  "schemaVersion": 1,
+  "description": "FY27 Year-End P&L showing Budget (BoD Approved) vs. Forecast (Live Model) by department, with $ and % variance. Includes quarterly view of forecast (Q1 actuals + Q2–Q4 Live Model). Queries mrp_forecast and mrp_financials in Snowflake for all 12 months of FY27 (Feb 2026 – Jan 2027).",
+  "mcpTools": [
+    "mcp__2c211ab0-a702-4355-9d71-4acf3f0ad8d5__sql_exec_tool"
+  ],
+  "mcpServerNames": [
+    "Snowflake"
+  ]
+}
+</script>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FY27 Forecast Review</title>
+  <style>
+    :root { color-scheme: light; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; background: #f0f2f5; color: #1a1a2e; }
+
+    #loadingOverlay { position: fixed; inset: 0; background: rgba(26,26,46,0.88); display: flex; align-items: center; justify-content: center; z-index: 9999; flex-direction: column; gap: 16px; }
+    .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #80C7D1; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loadingMsg { color: #e2e8f0; font-size: 13px; }
+
+    .page-header { background: #1a1a2e; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .page-header h1 { font-size: 17px; font-weight: 600; letter-spacing: .3px; }
+    .page-header .subtitle { font-size: 12px; color: #9ba3af; margin-top: 2px; }
+    .period-badge { background: #2d3748; border-radius: 6px; padding: 5px 12px; font-size: 12px; color: #e2e8f0; white-space: nowrap; }
+
+    .tab-bar { background: #1a1a2e; padding: 0 20px; display: flex; gap: 2px; border-bottom: 2px solid #2d3748; }
+    .tab-btn { background: none; border: none; cursor: pointer; padding: 9px 14px; font-size: 12px; font-weight: 500; color: #9ba3af; border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; transition: color .15s; }
+    .tab-btn:hover { color: #e2e8f0; }
+    .tab-btn.active { color: #63b3ed; border-bottom-color: #63b3ed; }
+
+    .content { padding: 20px 24px; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .table-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); overflow: hidden; margin-bottom: 20px; }
+    .table-title { padding: 12px 16px 10px; font-size: 14px; font-weight: 600; color: #1a1a2e; border-bottom: 1px solid #e8ecf0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .badge { font-size: 10px; font-weight: 500; border-radius: 4px; padding: 2px 7px; }
+    .badge-budget { background: #e8f0fe; color: #1e3a8a; }
+    .badge-forecast { background: #dcfce7; color: #14532d; }
+
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th, .data-table td { padding: 6px 10px; text-align: right; white-space: nowrap; font-size: 12.5px; }
+    .data-table td.label-col { text-align: left; font-weight: 400; color: #374151; padding-left: 12px; min-width: 220px; }
+    .data-table td.label-indent { text-align: left; font-weight: 400; color: #374151; padding-left: 28px; }
+
+    .data-table thead tr.group-header th { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 6px 10px; border: none; }
+    .data-table thead tr.col-header th { background: #f8fafc; color: #6b7280; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; border-bottom: 2px solid #e5e7eb; }
+    .data-table thead tr.col-header th.label-col { text-align: left; background: #f8fafc; }
+
+    .hdr-lbl  { background: #2d3748; }
+    .hdr-bud  { background: #3a4a5c; color: #e2e8f0; }
+    .hdr-fcst { background: #1e3a2e; color: #d1fae5; }
+    .hdr-var  { background: #2e3a4e; color: #e2e8f0; }
+    .hdr-spacer { width: 8px; background: #1a1a2e !important; }
+
+    .col-bud  { background: #f5f7fa; }
+    .col-fcst { background: #f0fdf4; }
+    .col-vd   { background: #f8f9fb; }
+    .col-vp   { background: #f8f9fb; }
+    .divider-left { border-left: 2px solid #d1d5db !important; }
+
+    .data-table tbody tr:nth-child(even) td { filter: brightness(.97); }
+    .data-table tbody tr:hover td { background: #ebf4ff !important; filter: none; }
+    .row-section td { background: #f1f5f9 !important; font-weight: 700; font-size: 11.5px; color: #1e293b; text-transform: uppercase; letter-spacing: .4px; padding-top: 8px; padding-bottom: 8px; }
+    .row-subtotal td { background: #e9edf2 !important; font-weight: 600; border-top: 1px solid #cbd5e0; }
+    .row-total td { background: #d6dde6 !important; font-weight: 700; border-top: 2px solid #94a3b8; }
+    .row-margin td { background: #fafafa !important; font-style: italic; color: #4b5563; }
+    .row-spacer td { height: 6px; background: #f8fafc !important; border: none; }
+
+    .var-good { color: #15803d; font-weight: 600; }
+    .var-bad  { color: #dc2626; font-weight: 600; }
+    .var-flat { color: #6b7280; }
+
+    .error-banner { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px 16px; color: #991b1b; font-size: 12.5px; margin-bottom: 16px; display: none; }
+    .footnote { font-size: 11px; color: #9ba3af; padding: 8px 16px 12px; }
+  </style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingMsg">Connecting to Snowflake…</div>
+</div>
+
+<div class="page-header">
+  <div>
+    <h1>FY27 Forecast Review</h1>
+    <div class="subtitle">All amounts in $000s &nbsp;·&nbsp; FY27: Feb 2026 – Jan 2027</div>
+  </div>
+  <div class="period-badge" id="asOfBadge">As of —</div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('exec',this)">Executive Summary</button>
+  <button class="tab-btn" onclick="switchTab('dept',this)">P&amp;L by Department</button>
+  <button class="tab-btn" onclick="switchTab('qtrdept',this)">Quarterly by Dept</button>
+  <button class="tab-btn" onclick="switchTab('qtr',this)">Quarterly Forecast</button>
+  <button class="tab-btn" onclick="switchTab('bridge',this)">Forecast Bridge</button>
+</div>
+
+<div class="content">
+  <div id="errorBanner" class="error-banner"></div>
+
+  <!-- EXEC SUMMARY -->
+  <div id="tab-exec" class="tab-panel active">
+    <div class="table-card">
+      <div class="table-title">
+        Executive Summary — FY27 Full Year
+        <div style="display:flex;gap:6px">
+          <span class="badge badge-budget">Budget: FY27 BoD Approved</span>
+          <span class="badge badge-forecast">Forecast: Actuals Feb–May + Live Model Jun–Jan</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="execHead"></thead>
+          <tbody id="execBody"><tr><td class="label-col" colspan="8" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="footnote" id="execFootnote"></div>
+    </div>
+  </div>
+
+  <!-- QUARTERLY BY DEPT -->
+  <div id="tab-qtrdept" class="tab-panel">
+    <div class="table-card">
+      <div class="table-title">
+        Quarterly P&amp;L by Department — FY27
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="badge" style="background:#fef3c7;color:#92400e">Q1 + May = Actuals</span>
+          <span class="badge badge-forecast">Q2 Jun–Q4 = Live Model</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="qtrDeptHead"></thead>
+          <tbody id="qtrDeptBody"><tr><td class="label-col" colspan="6" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="footnote" id="qtrDeptFootnote"></div>
+    </div>
+  </div>
+
+  <!-- QUARTERLY FORECAST -->
+  <div id="tab-qtr" class="tab-panel">
+    <div class="table-card">
+      <div class="table-title">
+        Quarterly Forecast — FY27
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="badge" style="background:#fef3c7;color:#92400e">Q1 = Actuals</span>
+          <span class="badge badge-forecast">Q2–Q4 = Live Model blended</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="qtrHead"></thead>
+          <tbody id="qtrBody"><tr><td class="label-col" colspan="6" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="footnote" id="qtrFootnote"></div>
+    </div>
+  </div>
+
+  <!-- FORECAST BRIDGE -->
+  <div id="tab-bridge" class="tab-panel">
+    <div class="table-card">
+      <div class="table-title">
+        Forecast Bridge — YTD Actuals · RoY Forecast · Historical Context
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="badge" style="background:#fef3c7;color:#92400e">YTD = Actuals Feb–May</span>
+          <span class="badge badge-forecast">RoY = Live Model Jun–Jan</span>
+          <span class="badge" style="background:#f1f5f9;color:#475569">Historical RoY/YTD for FY24–FY26</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="bridgeHead"></thead>
+          <tbody id="bridgeBody"><tr><td class="label-col" colspan="9" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="footnote" id="bridgeFootnote"></div>
+    </div>
+  </div>
+
+  <!-- P&L BY DEPARTMENT -->
+  <div id="tab-dept" class="tab-panel">
+    <div class="table-card">
+      <div class="table-title">
+        P&amp;L by Department — FY27 Full Year
+        <div style="display:flex;gap:6px">
+          <span class="badge badge-budget">Budget: FY27 BoD Approved</span>
+          <span class="badge badge-forecast">Forecast: Actuals Feb–May + Live Model Jun–Jan</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="deptHead"></thead>
+          <tbody id="deptBody"><tr><td class="label-col" colspan="8" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="footnote" id="deptFootnote"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── TAB SWITCHING ────────────────────────────────────
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ─── UTILITIES ────────────────────────────────────────
+const N   = (v, d=0) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const KD  = v => { if (v == null || v === '') return '—'; const n = +v; if (isNaN(n)) return '—'; return (n < 0 ? '($' + N(Math.abs(Math.round(n))) + ')' : '$' + N(Math.round(n))); };
+const PCT = v => { if (v == null || isNaN(v)) return '—'; return (v >= 0 ? '+' : '') + N(v * 100, 1) + '%'; };
+const PP  = v => { if (v == null || isNaN(v)) return '—'; return (v >= 0 ? '+' : '') + N(v * 100, 1) + 'pp'; };
+const FMT = v => { if (v == null || v === '') return '—'; const n = +v; if (isNaN(n)) return '—'; return N(Math.round(n)); };
+
+function varClass(a, b, dir) {
+  const diff = a - b;
+  if (Math.abs(diff) < 0.01) return 'var-flat';
+  return diff * dir > 0 ? 'var-good' : 'var-bad';
+}
+
+// ─── SQL EXECUTION ───────────────────────────────────
+async function execSQL(sql) {
+  const res = await fetch('/api/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sql })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  const { rows } = await res.json();
+  return rows;
+}
+
+// ─── QUERIES ─────────────────────────────────────────
+
+// Budget: BoD Approved, full FY27, P&L lines
+const Q_BUDGET = `
+  SELECT COALESCE(C_REVENUE,'') AS C_REVENUE, COALESCE(C_PARENT_DEPT,'') AS C_PARENT_DEPT,
+    COALESCE(C_PL_CLASS,'') AS C_PL_CLASS, COALESCE(C_EXPENSE_CATEGORY,'') AS C_EXPENSE_CATEGORY,
+    COALESCE(ACCOUNT_CODE,'') AS ACCOUNT_CODE, SUM(VALUE) AS AMOUNT
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = '2026.3.6 - FY27 Final BoD Approved'
+    AND C_PL_INCLUDE = 1
+    AND ((C_REVENUE IS NOT NULL AND C_REVENUE != '') OR (C_PARENT_DEPT IS NOT NULL AND C_PARENT_DEPT != ''))
+    AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31'
+  GROUP BY C_REVENUE, C_PARENT_DEPT, C_PL_CLASS, C_EXPENSE_CATEGORY, ACCOUNT_CODE`;
+
+// Actuals: Feb–May 2026, mrp_financials
+const Q_ACTUALS = `
+  SELECT ACCOUNT_TYPE, COALESCE(C_REVENUE,'') AS C_REVENUE, COALESCE(C_PARENT_DEPT,'') AS C_PARENT_DEPT,
+    COALESCE(C_PL_CLASS,'') AS C_PL_CLASS, COALESCE(C_EXPENSE_CATEGORY,'') AS C_EXPENSE_CATEGORY,
+    CASE WHEN C_REVENUE='Services Revenue' THEN COALESCE(ACCOUNT_NBR,'') ELSE '' END AS ACCOUNT_NBR,
+    SUM(AMT) AS AMT
+  FROM load.finance_sandbox.mrp_financials
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31' AND C_PL_INCLUDE = TRUE
+  GROUP BY ACCOUNT_TYPE, C_REVENUE, C_PARENT_DEPT, C_PL_CLASS, C_EXPENSE_CATEGORY,
+    CASE WHEN C_REVENUE='Services Revenue' THEN COALESCE(ACCOUNT_NBR,'') ELSE '' END`;
+
+// Live Model: Jun 2026–Jan 2027, P&L lines
+const Q_LIVE_MODEL = `
+  SELECT COALESCE(C_REVENUE,'') AS C_REVENUE, COALESCE(C_PARENT_DEPT,'') AS C_PARENT_DEPT,
+    COALESCE(C_PL_CLASS,'') AS C_PL_CLASS, COALESCE(C_EXPENSE_CATEGORY,'') AS C_EXPENSE_CATEGORY,
+    COALESCE(ACCOUNT_CODE,'') AS ACCOUNT_CODE, SUM(VALUE) AS AMOUNT
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND C_PL_INCLUDE = 1
+    AND ((C_REVENUE IS NOT NULL AND C_REVENUE != '') OR (C_PARENT_DEPT IS NOT NULL AND C_PARENT_DEPT != ''))
+    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+  GROUP BY C_REVENUE, C_PARENT_DEPT, C_PL_CLASS, C_EXPENSE_CATEGORY, ACCOUNT_CODE`;
+
+// ARR actuals: Feb–May 2026 from customer_month
+const Q_ARR = `
+  SELECT MONTH_END_DT, SUM(C_ARR) AS C_ARR, SUM(NEW_ARR) AS NEW_ARR,
+    SUM(EXPANSION_ARR) AS EXP_ARR, SUM(CHURN_ARR) AS CHURN_ARR
+  FROM prod.dealsbase.customer_month
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31'
+  GROUP BY MONTH_END_DT ORDER BY MONTH_END_DT`;
+
+// KPI: budget uses full FY27 (Feb–Jan); Live Model only Jun–Jan so Feb–May always come from actuals
+const Q_KPI = `
+  SELECT VERSION_NAME, TIME_MONTH_END, ACCOUNT_CODE, SUM(VALUE) AS AMOUNT
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE ACCOUNT_CODE IN ('KPI.NewARR','KPI.ExpansionARR','KPI.Downsell_Churn',
+                         'KPI.Exiting_ARR','Adjusted_CF','Cash_EOP','Total_HC_EOM')
+    AND (
+      (VERSION_NAME = '2026.3.6 - FY27 Final BoD Approved'
+        AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31')
+      OR
+      (VERSION_NAME = 'Live Model'
+        AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31')
+    )
+  GROUP BY VERSION_NAME, TIME_MONTH_END, ACCOUNT_CODE
+  ORDER BY VERSION_NAME, ACCOUNT_CODE, TIME_MONTH_END`;
+
+// Cash actuals: Jan–May monthly balances, Cash + Equity categories
+const Q_CASH = `
+  SELECT MONTH_END_DATE, SUM(ENDING_BALANCE) AS BALANCE
+  FROM load.finance_sandbox.mrp_cash
+  WHERE MONTH_END_DATE BETWEEN '2026-01-31' AND '2026-05-31'
+    AND ACCOUNT_CATEGORY IN ('Cash', 'Equity')
+  GROUP BY MONTH_END_DATE
+  ORDER BY MONTH_END_DATE`;
+
+// Monthly actuals revenue + expense (Feb–May) for quarterly view
+const Q_MONTHLY_ACTUALS = `
+  SELECT MONTH_END_DT AS DT,
+    SUM(CASE WHEN ACCOUNT_TYPE='Income' THEN -AMT ELSE 0 END) AS REVENUE,
+    SUM(CASE WHEN ACCOUNT_TYPE='Expense' THEN AMT ELSE 0 END) AS EXPENSE
+  FROM load.finance_sandbox.mrp_financials
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31' AND C_PL_INCLUDE = TRUE
+  GROUP BY MONTH_END_DT ORDER BY MONTH_END_DT`;
+
+// Monthly live model revenue + expense (Jun–Jan) for quarterly view
+const Q_MONTHLY_LIVE = `
+  SELECT TIME_MONTH_END AS DT,
+    SUM(CASE WHEN COALESCE(C_REVENUE,'') != '' THEN VALUE ELSE 0 END) AS REVENUE,
+    SUM(CASE WHEN COALESCE(C_PARENT_DEPT,'') != '' THEN VALUE ELSE 0 END) AS EXPENSE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND C_PL_INCLUDE = 1
+    AND ((C_REVENUE IS NOT NULL AND C_REVENUE != '') OR (C_PARENT_DEPT IS NOT NULL AND C_PARENT_DEPT != ''))
+    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+  GROUP BY TIME_MONTH_END ORDER BY TIME_MONTH_END`;
+
+// Monthly actuals by dept + class (Feb–May) for quarterly dept view
+const Q_MONTHLY_ACTUALS_DEPT = `
+  SELECT MONTH_END_DT AS DT, COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
+    SUM(CASE WHEN ACCOUNT_TYPE='Expense' THEN AMT ELSE 0 END) AS EXPENSE
+  FROM load.finance_sandbox.mrp_financials
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31'
+    AND C_PL_INCLUDE = TRUE AND COALESCE(C_PARENT_DEPT,'') != ''
+  GROUP BY MONTH_END_DT, C_PARENT_DEPT, C_PL_CLASS ORDER BY MONTH_END_DT`;
+
+// Monthly live model by dept + class (Jun–Jan) for quarterly dept view
+const Q_MONTHLY_LIVE_DEPT = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
+    SUM(VALUE) AS EXPENSE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model' AND C_PL_INCLUDE = 1
+    AND COALESCE(C_PARENT_DEPT,'') != ''
+    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+  GROUP BY TIME_MONTH_END, C_PARENT_DEPT, C_PL_CLASS ORDER BY TIME_MONTH_END`;
+
+// Historical P&L: FY24–FY26 (mrp_financials)
+const Q_HIST_PL = `
+  SELECT
+    CASE
+      WHEN MONTH_END_DT BETWEEN '2025-02-01' AND '2025-05-31' THEN 'FY26_YTD'
+      WHEN MONTH_END_DT BETWEEN '2025-06-01' AND '2026-01-31' THEN 'FY26_ROY'
+      WHEN MONTH_END_DT BETWEEN '2024-02-01' AND '2024-05-31' THEN 'FY25_YTD'
+      WHEN MONTH_END_DT BETWEEN '2024-06-01' AND '2025-01-31' THEN 'FY25_ROY'
+      WHEN MONTH_END_DT BETWEEN '2023-02-01' AND '2023-05-31' THEN 'FY24_YTD'
+      WHEN MONTH_END_DT BETWEEN '2023-06-01' AND '2024-01-31' THEN 'FY24_ROY'
+    END AS PERIOD,
+    SUM(CASE WHEN ACCOUNT_TYPE='Income' THEN -AMT ELSE 0 END) AS REVENUE,
+    SUM(CASE WHEN ACCOUNT_TYPE='Expense' THEN AMT ELSE 0 END) AS EXPENSE,
+    SUM(CASE WHEN ACCOUNT_TYPE='Expense' AND C_PL_CLASS='Headcount Costs' THEN AMT ELSE 0 END) AS HC_EXPENSE,
+    SUM(CASE WHEN ACCOUNT_TYPE='Expense' AND C_PL_CLASS IN ('Non-Headcount Costs','Overhead') THEN AMT ELSE 0 END) AS NON_HC_EXPENSE
+  FROM load.finance_sandbox.mrp_financials
+  WHERE C_PL_INCLUDE=TRUE AND MONTH_END_DT BETWEEN '2023-02-01' AND '2026-01-31'
+  GROUP BY 1 HAVING PERIOD IS NOT NULL ORDER BY 1`;
+
+// Historical ARR: FY24, FY25, FY26 from customer_month
+const Q_HIST_ARR = `
+  SELECT
+    CASE
+      WHEN MONTH_END_DT BETWEEN '2025-02-01' AND '2025-05-31' THEN 'FY26_YTD'
+      WHEN MONTH_END_DT BETWEEN '2025-06-01' AND '2026-01-31' THEN 'FY26_ROY'
+      WHEN MONTH_END_DT BETWEEN '2024-02-01' AND '2024-05-31' THEN 'FY25_YTD'
+      WHEN MONTH_END_DT BETWEEN '2024-06-01' AND '2025-01-31' THEN 'FY25_ROY'
+      WHEN MONTH_END_DT BETWEEN '2023-02-01' AND '2023-05-31' THEN 'FY24_YTD'
+      WHEN MONTH_END_DT BETWEEN '2023-06-01' AND '2024-01-31' THEN 'FY24_ROY'
+    END AS PERIOD,
+    SUM(NEW_ARR) AS NEW_ARR,
+    SUM(EXPANSION_ARR) AS EXP_ARR,
+    SUM(CHURN_ARR) AS CHURN_ARR,
+    MAX(CASE WHEN MONTH_END_DT IN ('2025-05-31','2024-05-31','2023-05-31') THEN C_ARR END) AS YTD_EOP_ARR,
+    MAX(CASE WHEN MONTH_END_DT IN ('2026-01-31','2025-01-31','2024-01-31') THEN C_ARR END) AS ROY_EOP_ARR
+  FROM prod.dealsbase.customer_month
+  WHERE MONTH_END_DT BETWEEN '2023-02-01' AND '2026-01-31'
+  GROUP BY 1 HAVING PERIOD IS NOT NULL ORDER BY 1`;
+
+// Historical cash balance points: Jan+May+Jan for FY24/FY25/FY26
+const Q_HIST_CASH = `
+  SELECT MONTH_END_DATE, SUM(ENDING_BALANCE) AS BALANCE
+  FROM load.finance_sandbox.mrp_cash
+  WHERE MONTH_END_DATE IN ('2023-01-31','2023-05-31','2024-01-31','2024-05-31','2025-01-31','2025-05-31','2026-01-31')
+    AND ACCOUNT_CATEGORY IN ('Cash','Equity')
+  GROUP BY MONTH_END_DATE ORDER BY MONTH_END_DATE`;
+
+// ─── PRE-PROCESS ─────────────────────────────────────
+
+// mrp_forecast rows (revenue + expenses both positive)
+function processForcast(rows) {
+  const rev = {}, exp = {};
+  for (const r of rows) {
+    const amt=+(r.AMOUNT||0), cr=r.C_REVENUE||'', dept=r.C_PARENT_DEPT||'',
+          cls=r.C_PL_CLASS||'', cat=r.C_EXPENSE_CATEGORY||'', ac=r.ACCOUNT_CODE||'';
+    if (cr) {
+      if (cr==='Services Revenue'&&ac==='4025') rev['Premium Services']=(rev['Premium Services']||0)+amt;
+      else if (cr==='Services Revenue'&&ac==='4030') rev['Implementation Services']=(rev['Implementation Services']||0)+amt;
+      else rev[cr]=(rev[cr]||0)+amt;
+    } else if (dept) {
+      if (!exp[dept]) exp[dept]={};
+      if (!exp[dept][cls]) exp[dept][cls]={};
+      exp[dept][cls][cat]=(exp[dept][cls][cat]||0)+amt;
+    }
+  }
+  return { rev, exp };
+}
+
+// mrp_financials rows (income AMT negative/credit; expenses positive)
+function processActuals(rows) {
+  const rev = {}, exp = {};
+  for (const r of rows) {
+    const amt=+(r.AMT||0), cr=r.C_REVENUE||'', dept=r.C_PARENT_DEPT||'',
+          cls=r.C_PL_CLASS||'', cat=r.C_EXPENSE_CATEGORY||'', an=r.ACCOUNT_NBR||'';
+    if (r.ACCOUNT_TYPE==='Income') {
+      const pos=-amt;
+      if (cr==='Services Revenue'&&an==='4020') rev['Premium Services']=(rev['Premium Services']||0)+pos;
+      else if (cr==='Services Revenue'&&an==='4030') rev['Implementation Services']=(rev['Implementation Services']||0)+pos;
+      else rev[cr||'Other Revenue']=(rev[cr||'Other Revenue']||0)+pos;
+    } else {
+      if (!exp[dept]) exp[dept]={};
+      if (!exp[dept][cls]) exp[dept][cls]={};
+      exp[dept][cls][cat]=(exp[dept][cls][cat]||0)+amt;
+    }
+  }
+  return { rev, exp };
+}
+
+function mergeData(a, b) {
+  const rev={...a.rev};
+  for (const [k,v] of Object.entries(b.rev)) rev[k]=(rev[k]||0)+v;
+  const exp={};
+  for (const src of [a.exp, b.exp]) {
+    for (const [dept,clsMap] of Object.entries(src)) {
+      if (!exp[dept]) exp[dept]={};
+      for (const [cls,catMap] of Object.entries(clsMap)) {
+        if (!exp[dept][cls]) exp[dept][cls]={};
+        for (const [cat,val] of Object.entries(catMap)) exp[dept][cls][cat]=(exp[dept][cls][cat]||0)+val;
+      }
+    }
+  }
+  return { rev, exp };
+}
+
+function makeAccessors(data) {
+  const {rev, exp} = data;
+  const revSum = type => {
+    if (type==='Services Revenue') return ((rev['Implementation Services']||0)+(rev['Premium Services']||0)+(rev['Services Revenue']||0));
+    return rev[type]||0;
+  };
+  const revTotal = () => Object.values(rev).reduce((a,b)=>a+b, 0);
+  const expSum = (dept, cls, cat) => {
+    const d=exp[dept]; if (!d) return 0;
+    if (cls&&cat) return (d[cls]&&d[cls][cat])||0;
+    if (cls) { if (!d[cls]) return 0; return Object.values(d[cls]).reduce((a,b)=>a+b,0); }
+    return Object.values(d).reduce((dv,cm)=>dv+Object.values(cm).reduce((a,b)=>a+b,0),0);
+  };
+  const expAllDepts = () => {
+    const DEPTS=['COGS: Infrastructure','COGS: Services','Engineering','Product','Customer Success','Sales','Marketing','G&A'];
+    return DEPTS.reduce((s,d)=>s+expSum(d,'',''),0);
+  };
+  const expHCAllDepts = () => {
+    const DEPTS=['COGS: Infrastructure','COGS: Services','Engineering','Product','Customer Success','Sales','Marketing','G&A'];
+    return DEPTS.reduce((s,d)=>s+expSum(d,'Headcount Costs',''),0);
+  };
+  const expNonHCAllDepts = () => {
+    const DEPTS=['COGS: Infrastructure','COGS: Services','Engineering','Product','Customer Success','Sales','Marketing','G&A'];
+    return DEPTS.reduce((s,d)=>s+expSum(d,'Non-Headcount Costs','')+expSum(d,'Overhead',''),0);
+  };
+  return { revSum, revTotal, expSum, expAllDepts, expHCAllDepts, expNonHCAllDepts };
+}
+
+// KPI accessor: keyed by [version][account_code][month]
+function processKPI(rows) {
+  const BUDGET_VER = '2026.3.6 - FY27 Final BoD Approved';
+  const LIVE_VER   = 'Live Model';
+  const bud={}, live={};
+  for (const r of rows) {
+    const ver=r.VERSION_NAME, code=r.ACCOUNT_CODE, dt=r.TIME_MONTH_END?r.TIME_MONTH_END.slice(0,10):'', val=+(r.AMOUNT||0);
+    const target = ver===BUDGET_VER ? bud : (ver===LIVE_VER ? live : null);
+    if (!target) continue;
+    if (!target[code]) target[code]={};
+    target[code][dt]=val;
+  }
+  // flow: sum over a range of months
+  const flow = (store, code, startDt, endDt) => {
+    const m=store[code]; if (!m) return 0;
+    return Object.entries(m).filter(([dt])=>dt>=startDt&&dt<=endDt).reduce((s,[,v])=>s+v,0);
+  };
+  // eop: point-in-time value at a specific month
+  const eop = (store, code, dt) => (store[code]&&store[code][dt])||0;
+
+  return {
+    budFlow:  (code, s, e) => flow(bud,  code, s, e),
+    liveFlow: (code, s, e) => flow(live, code, s, e),
+    budEop:   (code, dt)   => eop(bud,  code, dt),
+    liveEop:  (code, dt)   => eop(live, code, dt),
+  };
+}
+
+// ARR actuals from customer_month
+function processARR(rows) {
+  let newArr=0, expArr=0, churn=0, eopArr=0;
+  for (const r of rows) {
+    newArr += +(r.NEW_ARR||0);
+    expArr += +(r.EXP_ARR||0);
+    churn  += +(r.CHURN_ARR||0);
+  }
+  // EOP ARR = latest month's C_ARR
+  if (rows.length) eopArr = +(rows[rows.length-1].C_ARR||0);
+  return { newArr, expArr, churn, eopArr };
+}
+
+// Cash actuals from mrp_cash (Cash + Equity, monthly Jan–May)
+function processCash(rows) {
+  const monthly={};
+  for (const r of rows) monthly[r.MONTH_END_DATE.slice(0,10)]=+(r.BALANCE||0);
+  return { bop: monthly['2026-01-31']||0, latest: monthly['2026-05-31']||0, monthly };
+}
+
+// ─── TABLE HELPERS ────────────────────────────────────
+function makeHead(labelW='220px') {
+  return `
+  <tr class="group-header">
+    <th class="label-col hdr-lbl" style="width:${labelW}"></th>
+    <th class="hdr-spacer"></th><th class="hdr-bud">Budget</th>
+    <th class="hdr-spacer"></th><th class="hdr-fcst">Forecast</th>
+    <th class="hdr-spacer"></th><th class="hdr-var" colspan="2">Variance</th>
+  </tr>
+  <tr class="col-header">
+    <th class="label-col" style="width:${labelW}">FY27 (Feb '26 – Jan '27)</th>
+    <th class="hdr-spacer"></th><th class="col-bud">BoD Approved ($K)</th>
+    <th class="hdr-spacer"></th><th class="col-fcst divider-left">Forecast ($K)</th>
+    <th class="hdr-spacer"></th>
+    <th class="col-vd divider-left">$ Var ($K)</th><th class="col-vp">% Var</th>
+  </tr>`;
+}
+
+function secRow(label, cols=8) {
+  return `<tr class="row-section"><td class="label-col" colspan="${cols}">${label}</td></tr>`;
+}
+function spacer(cols=8) {
+  return `<tr class="row-spacer"><td colspan="${cols}"></td></tr>`;
+}
+
+function row(label, bud, fcst, opts={}) {
+  const { cls='', lc='label-col', varDir=1, pctFn=PCT } = opts;
+  const vd=fcst-bud, vp=bud!==0?vd/Math.abs(bud):null, vc=varClass(fcst,bud,varDir);
+  return `<tr class="${cls}">
+    <td class="${lc}">${label}</td>
+    <td class="hdr-spacer"></td><td class="col-bud">${KD(bud/1e3)}</td>
+    <td class="hdr-spacer"></td><td class="col-fcst divider-left">${KD(fcst/1e3)}</td>
+    <td class="hdr-spacer"></td>
+    <td class="col-vd divider-left ${vc}">${KD(vd/1e3)}</td>
+    <td class="col-vp ${vc}">${pctFn(vp)}</td>
+  </tr>`;
+}
+
+function rowPct(label, budPct, fcstPct, opts={}) {
+  const { cls='', lc='label-col', varDir=1 } = opts;
+  const vd=fcstPct-budPct, vc=varClass(fcstPct,budPct,varDir);
+  return `<tr class="${cls}">
+    <td class="${lc}">${label}</td>
+    <td class="hdr-spacer"></td><td class="col-bud">${isNaN(budPct)?'—':N(budPct*100,1)+'%'}</td>
+    <td class="hdr-spacer"></td><td class="col-fcst divider-left">${isNaN(fcstPct)?'—':N(fcstPct*100,1)+'%'}</td>
+    <td class="hdr-spacer"></td>
+    <td class="col-vd divider-left ${vc}">${PP(vd)}</td><td class="col-vp ${vc}"></td>
+  </tr>`;
+}
+
+// HC row: integer headcount, no $K formatting
+function rowHC(label, budHC, fcstHC) {
+  const vd=Math.round(fcstHC-budHC), vc=varClass(fcstHC,budHC,-1);
+  const fmt=v=>v==null||isNaN(v)?'—':N(Math.round(v));
+  return `<tr>
+    <td class="label-col">${label}</td>
+    <td class="hdr-spacer"></td><td class="col-bud">${fmt(budHC)}</td>
+    <td class="hdr-spacer"></td><td class="col-fcst divider-left">${fmt(fcstHC)}</td>
+    <td class="hdr-spacer"></td>
+    <td class="col-vd divider-left ${vc}">${vd>=0?'+'+vd:vd}</td>
+    <td class="col-vp ${vc}"></td>
+  </tr>`;
+}
+
+// ─── BUILD EXEC SUMMARY ───────────────────────────────
+function buildExec(bud, fcst, arr, kpi, cash) {
+  const budRevTotal  = bud.revTotal();
+  const fcstRevTotal = fcst.revTotal();
+  const budExpTotal  = bud.expAllDepts();
+  const fcstExpTotal = fcst.expAllDepts();
+  const budEbitda    = budRevTotal  - budExpTotal;
+  const fcstEbitda   = fcstRevTotal - fcstExpTotal;
+
+  // ARR: actuals Feb–May + Live Model Jun–Jan
+  const FY_START='2026-02-01', FY_END='2027-01-31';
+  const ACT_END='2026-05-31', LM_START='2026-06-01';
+  const JAN27='2027-01-31';
+
+  const budNewArr    = kpi.budFlow('KPI.NewARR',       FY_START, FY_END);
+  const budExpArr    = kpi.budFlow('KPI.ExpansionARR', FY_START, FY_END);
+  const budChurn     = kpi.budFlow('KPI.Downsell_Churn',FY_START,FY_END);
+  const budEopArr    = kpi.budEop('KPI.Exiting_ARR',   JAN27);
+
+  // Forecast ARR = actuals (Feb–May) + Live Model (Jun–Jan)
+  const fcstNewArr   = arr.newArr + kpi.liveFlow('KPI.NewARR',       LM_START, FY_END);
+  const fcstExpArr   = arr.expArr + kpi.liveFlow('KPI.ExpansionARR', LM_START, FY_END);
+  const fcstChurn    = arr.churn  + kpi.liveFlow('KPI.Downsell_Churn',LM_START,FY_END);
+  const fcstEopArr   = kpi.liveEop('KPI.Exiting_ARR', JAN27);
+
+  // Cash Burn FY27: total change in cash
+  // Budget: SUM of Adjusted_CF over FY27 from BoD
+  // Forecast: actual burn Feb–May (May balance - Jan balance, Cash+Equity) + Live Model Adjusted_CF Jun–Jan
+  const budCashBurn  = kpi.budFlow('Adjusted_CF', FY_START, FY_END);
+  const actCashBurn  = cash.latest - cash.bop;
+  const fcstCashBurn = actCashBurn + kpi.liveFlow('Adjusted_CF', LM_START, FY_END);
+
+  // Ending Cash Jan '27
+  const budCashEop   = kpi.budEop('Cash_EOP',  JAN27);
+  const fcstCashEop  = kpi.liveEop('Cash_EOP', JAN27);
+
+  // Headcount year-end Jan '27
+  const budHC        = kpi.budEop('Total_HC_EOM',  JAN27);
+  const fcstHC       = kpi.liveEop('Total_HC_EOM', JAN27);
+
+  let h = '';
+  h += secRow('ARR');
+  h += row('New ARR',            budNewArr,        fcstNewArr,        { varDir:  1 });
+  h += row('Expansion ARR',      budExpArr,        fcstExpArr,        { varDir:  1 });
+  h += row('New + Expansion ARR',budNewArr+budExpArr, fcstNewArr+fcstExpArr, { cls:'row-subtotal', varDir: 1 });
+  h += row('Churn / Downsell',   budChurn,         fcstChurn,         { varDir: -1 });
+  h += row('EOP ARR (Jan \'27)', budEopArr,        fcstEopArr,        { cls:'row-subtotal', varDir: 1 });
+  h += spacer();
+
+  h += secRow('Revenue');
+  h += row('Total Revenue',      budRevTotal,      fcstRevTotal,      { cls:'row-subtotal', varDir: 1 });
+  for (const rt of ['Subscription Revenue','Consumption Revenue','Services Revenue']) {
+    const b=bud.revSum(rt), f=fcst.revSum(rt);
+    if (Math.abs(b)+Math.abs(f)>100) h += row(rt, b, f, { lc:'label-indent', varDir: 1 });
+  }
+  h += spacer();
+
+  h += secRow('Expenses & Profitability');
+  h += row('Total Expense',      budExpTotal,      fcstExpTotal,      { varDir: -1 });
+  h += row('EBITDA',             budEbitda,        fcstEbitda,        { cls:'row-subtotal', varDir: 1 });
+  h += rowPct('EBITDA Margin %',
+    budRevTotal  ? budEbitda  / budRevTotal  : 0,
+    fcstRevTotal ? fcstEbitda / fcstRevTotal : 0,
+    { cls:'row-margin', lc:'label-indent', varDir: 1 });
+  h += row('Cash Burn (FY27)',   budCashBurn,      fcstCashBurn,      { varDir: 1 });
+  h += spacer();
+
+  h += secRow('Headcount');
+  h += rowHC('Total HC (EOP Jan \'27)', budHC, fcstHC);
+
+  document.getElementById('execBody').innerHTML = h;
+}
+
+// ─── BUILD P&L BY DEPARTMENT ─────────────────────────
+function buildPL(bud, fcst) {
+  const COGS=['COGS: Infrastructure','COGS: Services'];
+  const OPEX=['Engineering','Product','Customer Success','Sales','Marketing','G&A'];
+  const REV_TYPES=['Subscription Revenue','Consumption Revenue','Services Revenue','Pilot Revenue','Other Revenue'];
+  let h='';
+
+  const budRevTotal=bud.revTotal(), fcstRevTotal=fcst.revTotal();
+  h += row('Total Revenue', budRevTotal, fcstRevTotal, { cls:'row-subtotal', varDir:1 });
+  for (const rt of REV_TYPES) {
+    const b=bud.revSum(rt), f=fcst.revSum(rt);
+    if (Math.abs(b)+Math.abs(f)>100) h += row(rt, b, f, { lc:'label-indent', varDir:1 });
+  }
+  h += spacer();
+
+  let budCogs=0, fcstCogs=0;
+  for (const dept of COGS) {
+    h += secRow(dept);
+    for (const cls of ['Headcount Costs','Non-Headcount Costs','Overhead']) {
+      const b=bud.expSum(dept,cls,''), f=fcst.expSum(dept,cls,'');
+      if (Math.abs(b)+Math.abs(f)>100) h += row(cls, b, f, { lc:'label-indent', varDir:-1 });
+    }
+    const b=bud.expSum(dept,'',''), f=fcst.expSum(dept,'','');
+    budCogs+=b; fcstCogs+=f;
+    h += row('Total '+dept, b, f, { cls:'row-subtotal', varDir:-1 });
+    h += spacer();
+  }
+  h += row('Total COGS', budCogs, fcstCogs, { cls:'row-total', varDir:-1 });
+  const budGP=budRevTotal-budCogs, fcstGP=fcstRevTotal-fcstCogs;
+  h += row('Gross Profit', budGP, fcstGP, { cls:'row-subtotal', varDir:1 });
+  h += rowPct('GM%', budRevTotal?budGP/budRevTotal:0, fcstRevTotal?fcstGP/fcstRevTotal:0, { cls:'row-margin', varDir:1 });
+  h += spacer();
+
+  let budOpex=0, fcstOpex=0;
+  for (const dept of OPEX) {
+    h += secRow(dept);
+    for (const cls of ['Headcount Costs','Non-Headcount Costs','Overhead']) {
+      const b=bud.expSum(dept,cls,''), f=fcst.expSum(dept,cls,'');
+      if (Math.abs(b)+Math.abs(f)>100) h += row(cls, b, f, { lc:'label-indent', varDir:-1 });
+    }
+    const b=bud.expSum(dept,'',''), f=fcst.expSum(dept,'','');
+    budOpex+=b; fcstOpex+=f;
+    h += row('Total '+dept, b, f, { cls:'row-subtotal', varDir:-1 });
+    h += spacer();
+  }
+  h += row('Total OpEx', budOpex, fcstOpex, { cls:'row-total', varDir:-1 });
+  h += spacer();
+  const budEbitda=budGP-budOpex, fcstEbitda=fcstGP-fcstOpex;
+  h += row('EBITDA', budEbitda, fcstEbitda, { cls:'row-total', varDir:1 });
+  h += rowPct('EBITDA Margin %', budRevTotal?budEbitda/budRevTotal:0, fcstRevTotal?fcstEbitda/fcstRevTotal:0, { cls:'row-margin', varDir:1 });
+  h += spacer();
+
+  // HC / Non-HC summary across all departments
+  const ALL_DEPTS = [...COGS, ...OPEX];
+  h += secRow('Expense Summary — All Departments');
+  const budHCAll   = ALL_DEPTS.reduce((s,d)=>s+bud.expSum(d,'Headcount Costs',''),0);
+  const fcstHCAll  = ALL_DEPTS.reduce((s,d)=>s+fcst.expSum(d,'Headcount Costs',''),0);
+  const budNHCAll  = ALL_DEPTS.reduce((s,d)=>s+bud.expSum(d,'Non-Headcount Costs','')+bud.expSum(d,'Overhead',''),0);
+  const fcstNHCAll = ALL_DEPTS.reduce((s,d)=>s+fcst.expSum(d,'Non-Headcount Costs','')+fcst.expSum(d,'Overhead',''),0);
+  h += row('Total Headcount Costs',  budHCAll,  fcstHCAll,  { cls:'row-subtotal', varDir:-1 });
+  h += row('Total Non-HC Costs',     budNHCAll, fcstNHCAll, { cls:'row-subtotal', varDir:-1 });
+
+  document.getElementById('deptBody').innerHTML = h;
+}
+
+// ─── BUILD QUARTERLY FORECAST ────────────────────────
+function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
+  const QTRS = [
+    { label:'Q1 FY27', sub:"Feb–Apr '26", months:['2026-02-28','2026-03-31','2026-04-30'], isActual:true },
+    { label:'Q2 FY27', sub:"May–Jul '26", months:['2026-05-31','2026-06-30','2026-07-31'], isActual:false },
+    { label:'Q3 FY27', sub:"Aug–Oct '26", months:['2026-08-31','2026-09-30','2026-10-31'], isActual:false },
+    { label:'Q4 FY27', sub:"Nov '26–Jan '27", months:['2026-11-30','2026-12-31','2027-01-31'], isActual:false },
+  ];
+
+  // Build monthly revenue map from combined actuals + live model rows
+  const mMap = {};
+  for (const m of monthlyRevRows) mMap[m.dt] = m;
+
+  function qARR(q) {
+    let newArr=0, expArr=0, churn=0, eopArr=0;
+    for (const dt of q.months) {
+      const actRow = arrRows.find(r => r.MONTH_END_DT === dt);
+      if (actRow) {
+        newArr += +(actRow.NEW_ARR||0);
+        expArr += +(actRow.EXP_ARR||0);
+        churn  += +(actRow.CHURN_ARR||0);
+        eopArr  = +(actRow.C_ARR||0);
+      } else {
+        newArr += kpi.liveFlow('KPI.NewARR',        dt, dt);
+        expArr += kpi.liveFlow('KPI.ExpansionARR',  dt, dt);
+        churn  += kpi.liveFlow('KPI.Downsell_Churn',dt, dt);
+        eopArr  = kpi.liveEop('KPI.Exiting_ARR',    dt);
+      }
+    }
+    return { newArr, expArr, churn, eopArr };
+  }
+
+  // Prev-month lookup for actual cash burn calculation
+  const PREV_DT = {
+    '2026-02-28':'2026-01-31','2026-03-31':'2026-02-28','2026-04-30':'2026-03-31',
+    '2026-05-31':'2026-04-30','2026-06-30':'2026-05-31'
+  };
+
+  function qCF(q) {
+    return q.months.reduce((s, dt) => {
+      const prevDt = PREV_DT[dt];
+      // Use actual mrp_cash balance change when both months are available
+      if (prevDt && cashMonthly[dt] !== undefined && cashMonthly[prevDt] !== undefined) {
+        return s + (cashMonthly[dt] - cashMonthly[prevDt]);
+      }
+      // Fall back to Live Model CF, then Budget CF
+      const lv = kpi.liveFlow('Adjusted_CF', dt, dt);
+      return s + (lv !== 0 ? lv : kpi.budFlow('Adjusted_CF', dt, dt));
+    }, 0);
+  }
+
+  function qHC(q) {
+    const last = q.months[q.months.length - 1];
+    return kpi.liveEop('Total_HC_EOM', last) || kpi.budEop('Total_HC_EOM', last);
+  }
+
+  const qs = QTRS.map(q => {
+    const rev    = q.months.reduce((s,dt) => s + (mMap[dt]?.rev||0), 0);
+    const exp    = q.months.reduce((s,dt) => s + (mMap[dt]?.exp||0), 0);
+    const { newArr, expArr, churn, eopArr } = qARR(q);
+    return { ...q, rev, exp, ebitda: rev-exp, newArr, expArr, churn, eopArr,
+             cfBurn: qCF(q), hc: qHC(q) };
+  });
+
+  const fy = {
+    rev:    qs.reduce((s,q)=>s+q.rev,0),
+    exp:    qs.reduce((s,q)=>s+q.exp,0),
+    ebitda: qs.reduce((s,q)=>s+q.ebitda,0),
+    newArr: qs.reduce((s,q)=>s+q.newArr,0),
+    expArr: qs.reduce((s,q)=>s+q.expArr,0),
+    churn:  qs.reduce((s,q)=>s+q.churn,0),
+    eopArr: qs[3].eopArr,
+    cfBurn: qs.reduce((s,q)=>s+q.cfBurn,0),
+    hc:     qs[3].hc,
+  };
+
+  // ── Header ──────────────────────────────────────────
+  const hdrBg = ['#3a4a5c','#1e3a2e','#1e3a2e','#1e3a2e','#2d3748'];
+  const hdrFg = ['#e2e8f0','#d1fae5','#d1fae5','#d1fae5','#e2e8f0'];
+  const colBg = ['#f5f7fa','#f0fdf4','#f0fdf4','#f0fdf4','#e9edf2'];
+
+  let head = '<tr class="group-header"><th class="label-col hdr-lbl" style="min-width:200px"></th>';
+  const allCols = [...qs.map(q=>q.label), 'FY Total'];
+  const allSubs = [...qs.map(q=>q.sub), "Feb '26–Jan '27"];
+  allCols.forEach((c,i) => {
+    head += `<th style="background:${hdrBg[i]};color:${hdrFg[i]}">${c}</th>`;
+  });
+  head += '</tr><tr class="col-header"><th class="label-col" style="background:#f8fafc;color:#6b7280;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Forecast ($K)</th>';
+  allSubs.forEach((s,i) => {
+    head += `<th style="background:${colBg[i]};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">${s}</th>`;
+  });
+  head += '</tr>';
+
+  // ── Row helpers ──────────────────────────────────────
+  const allData = [...qs, fy];
+  function qrow(label, vals, opts={}) {
+    const { cls='', lc='label-col' } = opts;
+    let r = `<tr class="${cls}"><td class="${lc}">${label}</td>`;
+    vals.forEach((v,i) => {
+      r += `<td style="background:${colBg[i]};text-align:right;padding:6px 10px;font-size:12.5px">${KD(v/1e3)}</td>`;
+    });
+    r += '</tr>';
+    return r;
+  }
+  function qpct(label, vals, opts={}) {
+    const { cls='', lc='label-col' } = opts;
+    let r = `<tr class="${cls}"><td class="${lc}">${label}</td>`;
+    vals.forEach((v,i) => {
+      const s = isNaN(v)?'—':(N(v*100,1)+'%');
+      r += `<td style="background:${colBg[i]};text-align:right;padding:6px 10px;font-size:12.5px;font-style:italic;color:#4b5563">${s}</td>`;
+    });
+    r += '</tr>';
+    return r;
+  }
+  function qhc(label, vals, opts={}) {
+    const { cls='', lc='label-col' } = opts;
+    let r = `<tr class="${cls}"><td class="${lc}">${label}</td>`;
+    vals.forEach((v,i) => {
+      r += `<td style="background:${colBg[i]};text-align:right;padding:6px 10px;font-size:12.5px">${v==null||isNaN(v)?'—':N(Math.round(v))}</td>`;
+    });
+    r += '</tr>';
+    return r;
+  }
+  function qspacer() { return `<tr class="row-spacer"><td colspan="6"></td></tr>`; }
+  function qsec(label) { return `<tr class="row-section"><td class="label-col" colspan="6">${label}</td></tr>`; }
+
+  let h = '';
+
+  h += qsec('ARR');
+  h += qrow('New ARR',              allData.map(q=>q.newArr));
+  h += qrow('Expansion ARR',        allData.map(q=>q.expArr));
+  h += qrow('New + Expansion ARR',  allData.map(q=>q.newArr+q.expArr), { cls:'row-subtotal' });
+  h += qrow('Churn / Downsell',     allData.map(q=>q.churn));
+  h += qrow('EOP ARR',              allData.map(q=>q.eopArr), { cls:'row-subtotal' });
+  h += qspacer();
+
+  h += qsec('Revenue & Profitability');
+  h += qrow('Revenue',              allData.map(q=>q.rev), { cls:'row-subtotal' });
+  h += qrow('Total Expense',        allData.map(q=>q.exp));
+  h += qrow('EBITDA',               allData.map(q=>q.ebitda), { cls:'row-subtotal' });
+  h += qpct('EBITDA Margin %',      allData.map(q => q.rev ? q.ebitda/q.rev : NaN));
+  h += qrow('Cash Burn',            allData.map(q=>q.cfBurn));
+  h += qspacer();
+
+  h += qsec('Headcount');
+  h += qhc('HC EOP',                allData.map(q=>q.hc));
+
+  document.getElementById('qtrHead').innerHTML = head;
+  document.getElementById('qtrBody').innerHTML = h;
+  document.getElementById('qtrFootnote').textContent =
+    'Q1 Revenue & Expense = actuals (mrp_financials). Q2–Q4 = Live Model (mrp_forecast). Q1 ARR = actuals (customer_month); Q2–Q4 ARR blends May actuals + Live Model. Cash Burn (Feb–May) = actual month-over-month change in Cash + Equity (mrp_cash); Jun–Jan = Live Model Adjusted_CF.';
+}
+
+// ─── BUILD QUARTERLY BY DEPT ─────────────────────────
+function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
+  // deptMap[dept][cls][dt] = expense
+  const deptMap = {};
+  const add = (dept, cls, dt, exp) => {
+    if (!dept) return;
+    if (!deptMap[dept]) deptMap[dept] = {};
+    if (!deptMap[dept][cls]) deptMap[dept][cls] = {};
+    deptMap[dept][cls][dt] = (deptMap[dept][cls][dt]||0) + exp;
+  };
+  for (const r of deptActRows)  add(r.DEPT, r.CLS||'', r.DT.slice(0,10), +(r.EXPENSE||0));
+  for (const r of deptLiveRows) add(r.DEPT, r.CLS||'', r.DT.slice(0,10), +(r.EXPENSE||0));
+
+  // Revenue from monthlyRevRows
+  const revMap = {};
+  for (const r of monthlyRevRows) revMap[r.dt] = (revMap[r.dt]||0) + r.rev;
+
+  const QTRS = [
+    { label:'Q1 FY27', sub:"Feb–Apr '26",     months:['2026-02-28','2026-03-31','2026-04-30'], act:true  },
+    { label:'Q2 FY27', sub:"May–Jul '26",     months:['2026-05-31','2026-06-30','2026-07-31'], act:false },
+    { label:'Q3 FY27', sub:"Aug–Oct '26",     months:['2026-08-31','2026-09-30','2026-10-31'], act:false },
+    { label:'Q4 FY27', sub:"Nov '26–Jan '27", months:['2026-11-30','2026-12-31','2027-01-31'], act:false },
+  ];
+  const COGS  = ['COGS: Infrastructure','COGS: Services'];
+  const OPEX  = ['Engineering','Product','Customer Success','Sales','Marketing','G&A'];
+  const DEPTS = [...COGS, ...OPEX];
+  const CLASSES = ['Headcount Costs','Non-Headcount Costs','Overhead'];
+
+  const qExp = (dept, cls, months) => {
+    const dm = deptMap[dept]; if (!dm) return 0;
+    if (cls) { const cm=dm[cls]; return cm ? months.reduce((s,dt)=>s+(cm[dt]||0),0) : 0; }
+    return Object.values(dm).reduce((s,cm)=>s+months.reduce((ss,dt)=>ss+(cm[dt]||0),0),0);
+  };
+  const qRev  = q => q.months.reduce((s,dt)=>s+(revMap[dt]||0),0);
+  const qHC   = (dept, q) => qExp(dept,'Headcount Costs',q.months);
+  const qNHC  = (dept, q) => qExp(dept,'Non-Headcount Costs',q.months)+qExp(dept,'Overhead',q.months);
+
+  const NC = QTRS.length + 1; // data cols including FY Total
+  const nc = NC + 1;          // total cols including label
+
+  // Header
+  const hdrBg = q => q.act ? '#fef9ec' : '#f0fdf4';
+  const hdrFg = q => q.act ? '#78350f' : '#14532d';
+  let head = `<tr class="col-header"><th class="label-col" style="min-width:210px">Dept / Class ($K)</th>` +
+    QTRS.map(q=>`<th style="text-align:right;padding:7px 10px;background:${hdrBg(q)};color:${hdrFg(q)};white-space:nowrap">
+      ${q.label}<br><span style="font-weight:400;font-size:10px;opacity:.75">${q.sub}</span></th>`).join('') +
+    `<th style="text-align:right;padding:7px 10px;background:#e9edf2;font-weight:700">FY27 Total</th></tr>`;
+
+  // Row builder
+  const rowQ = (lbl, vals, cls='', lc='label-col') => {
+    const ye = vals.reduce((s,v)=>s+v,0);
+    if (vals.every(v=>v===0)&&ye===0) return '';
+    const fw = cls.includes('total')||cls.includes('subtotal') ? 600 : 400;
+    return `<tr class="${cls}"><td class="${lc}">${lbl}</td>` +
+      vals.map(v=>`<td style="text-align:right;padding:6px 10px">${KD(v/1e3)}</td>`).join('') +
+      `<td style="text-align:right;padding:6px 10px;font-weight:${fw}">${KD(ye/1e3)}</td></tr>`;
+  };
+  const secRow = lbl => `<tr class="row-section"><td class="label-col" colspan="${nc}">${lbl}</td></tr>`;
+  const spacer  = ()  => `<tr class="row-spacer"><td colspan="${nc}"></td></tr>`;
+
+  let h = '';
+
+  // Revenue
+  const revVals = QTRS.map(q=>qRev(q));
+  h += rowQ('Total Revenue', revVals, 'row-subtotal');
+  h += spacer();
+
+  // COGS depts
+  const cogsVals = QTRS.map(()=>0);
+  for (const dept of COGS) {
+    h += secRow(dept);
+    for (const cls of CLASSES) {
+      const v = QTRS.map(q=>qExp(dept,cls,q.months));
+      h += rowQ(cls, v, '', 'label-indent');
+    }
+    const tv = QTRS.map(q=>qExp(dept,null,q.months));
+    tv.forEach((v,i)=>cogsVals[i]+=v);
+    h += rowQ('Total '+dept, tv, 'row-subtotal');
+    h += spacer();
+  }
+  h += rowQ('Total COGS', cogsVals, 'row-total');
+  h += spacer();
+
+  // OpEx depts
+  const opexVals = QTRS.map(()=>0);
+  for (const dept of OPEX) {
+    h += secRow(dept);
+    for (const cls of CLASSES) {
+      const v = QTRS.map(q=>qExp(dept,cls,q.months));
+      h += rowQ(cls, v, '', 'label-indent');
+    }
+    const tv = QTRS.map(q=>qExp(dept,null,q.months));
+    tv.forEach((v,i)=>opexVals[i]+=v);
+    h += rowQ('Total '+dept, tv, 'row-subtotal');
+    h += spacer();
+  }
+  h += rowQ('Total OpEx', opexVals, 'row-total');
+  h += spacer();
+
+  // EBITDA
+  const totalExpVals = QTRS.map((q,i)=>cogsVals[i]+opexVals[i]);
+  const ebitdaVals   = QTRS.map((q,i)=>revVals[i]-totalExpVals[i]);
+  h += rowQ('Total Expense', totalExpVals, 'row-total');
+  h += rowQ('EBITDA',        ebitdaVals,   'row-total');
+  h += spacer();
+
+  // HC / Non-HC summary
+  h += secRow('Expense Summary — All Departments');
+  const hcVals  = QTRS.map(q=>DEPTS.reduce((s,d)=>s+qHC(d,q),0));
+  const nhcVals = QTRS.map(q=>DEPTS.reduce((s,d)=>s+qNHC(d,q),0));
+  h += rowQ('Total Headcount Costs', hcVals,  'row-subtotal');
+  h += rowQ('Total Non-HC Costs',    nhcVals, 'row-subtotal');
+
+  document.getElementById('qtrDeptHead').innerHTML = head;
+  document.getElementById('qtrDeptBody').innerHTML = h;
+  document.getElementById('qtrDeptFootnote').textContent =
+    'Q1 (Feb–Apr) and May = mrp_financials actuals. Jun onwards = Live Model (mrp_forecast). ' +
+    'Overhead folded into Non-HC Costs in the summary rows.';
+}
+
+// ─── PROCESS HISTORICAL ──────────────────────────────
+function processHistorical(histPLRows, histARRRows, histCashRows) {
+  // P&L: FY26 only
+  const pl = {};
+  for (const r of histPLRows) {
+    pl[r.PERIOD] = { rev: +(r.REVENUE||0), exp: +(r.EXPENSE||0), hcExp: +(r.HC_EXPENSE||0), nonHcExp: +(r.NON_HC_EXPENSE||0) };
+  }
+  // ARR: FY24–FY26, plus EOP ARR per period
+  const arr = {};
+  for (const r of histARRRows) {
+    arr[r.PERIOD] = {
+      newArr:  +(r.NEW_ARR||0),
+      expArr:  +(r.EXP_ARR||0),
+      churn:   +(r.CHURN_ARR||0),
+      ytdEop:  +(r.YTD_EOP_ARR||0),
+      royEop:  +(r.ROY_EOP_ARR||0)
+    };
+  }
+  // Cash: monthly balance map → derive YTD and RoY burn per year
+  const cashMap = {};
+  for (const r of histCashRows) cashMap[r.MONTH_END_DATE.slice(0,10)] = +(r.BALANCE||0);
+  function burn(a, b) {
+    const va=cashMap[a], vb=cashMap[b];
+    return (va !== undefined && vb !== undefined) ? vb - va : null;
+  }
+  const cashBurn = {
+    FY26_YTD: burn('2025-01-31','2025-05-31'),
+    FY26_ROY: burn('2025-05-31','2026-01-31'),
+    FY25_YTD: burn('2024-01-31','2024-05-31'),
+    FY25_ROY: burn('2024-05-31','2025-01-31'),
+    FY24_YTD: burn('2023-01-31','2023-05-31'),
+    FY24_ROY: burn('2023-05-31','2024-01-31')
+  };
+  return { pl, arr, cashBurn };
+}
+
+// ─── BUILD FORECAST BRIDGE ────────────────────────────
+function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
+  const LM_START='2026-06-01', FY_END='2027-01-31', JAN27='2027-01-31';
+
+  // ── FY27 YTD (Feb–May actuals) ──────────────────────
+  const ytdRev    = ytdAcc.revTotal();
+  const ytdExp    = ytdAcc.expAllDepts();
+  const ytdExpHC  = ytdAcc.expHCAllDepts();
+  const ytdExpNonHC = ytdAcc.expNonHCAllDepts();
+  const ytdEbitda = ytdRev - ytdExp;
+  const ytdCash   = cash.latest - cash.bop;
+  const ytdNewArr = arr.newArr;
+  const ytdExpArr = arr.expArr;
+  const ytdChurn  = arr.churn;
+  const ytdEopArr = arr.eopArr;
+  const ytdHC     = kpi.budEop('Total_HC_EOM','2026-05-31');
+
+  // ── FY27 RoY (Jun–Jan Live Model) ───────────────────
+  const royRev    = royAcc.revTotal();
+  const royExp    = royAcc.expAllDepts();
+  const royExpHC  = royAcc.expHCAllDepts();
+  const royExpNonHC = royAcc.expNonHCAllDepts();
+  const royEbitda = royRev - royExp;
+  const royCash   = kpi.liveFlow('Adjusted_CF', LM_START, FY_END);
+  const royNewArr = kpi.liveFlow('KPI.NewARR',        LM_START, FY_END);
+  const royExpArr = kpi.liveFlow('KPI.ExpansionARR',  LM_START, FY_END);
+  const royChurn  = kpi.liveFlow('KPI.Downsell_Churn',LM_START, FY_END);
+  const royEopArr = kpi.liveEop('KPI.Exiting_ARR', JAN27);
+  const royHC     = kpi.liveEop('Total_HC_EOM', JAN27);
+
+  // ── YE Totals ────────────────────────────────────────
+  const yeRev    = ytdRev + royRev;
+  const yeExp    = ytdExp + royExp;
+  const yeExpHC  = ytdExpHC + royExpHC;
+  const yeExpNonHC = ytdExpNonHC + royExpNonHC;
+  const yeEbitda = ytdEbitda + royEbitda;
+  const yeCash   = ytdCash + royCash;
+  const yeNewArr = ytdNewArr + royNewArr;
+  const yeExpArr = ytdExpArr + royExpArr;
+  const yeChurn  = ytdChurn + royChurn;
+  const yeEopArr = royEopArr;  // point-in-time
+  const yeHC     = royHC;      // point-in-time
+
+  // ── Ratio helpers ─────────────────────────────────────
+  function ratio(r, y) {
+    if (y == null || r == null || Math.abs(y) < 500) return null;
+    const v = r / y;
+    return v < 0 ? null : v;  // opposite signs = not meaningful
+  }
+  const fR = v => v === null ? '—' : N(v, 1) + 'x';
+
+  // Historical lookups
+  const hA  = (fy, per, f) => { const k=`${fy}_${per}`; return hist.arr[k]?.[f] ?? null; };
+  const hPL = (fy, per, f) => { const k=`${fy}_${per}`; return hist.pl[k]?.[f] ?? null; };
+  const hCF = (fy, per)    => hist.cashBurn[`${fy}_${per}`] ?? null;
+
+  // Precompute historical EBITDA
+  function histEbitda(fy, per) {
+    const r=hPL(fy,per,'rev'), e=hPL(fy,per,'exp');
+    return r!==null && e!==null ? r-e : null;
+  }
+
+  // Ratio columns: FY27 Fcst | FY26 | FY25 | FY24
+  function arrRatios(royVal, ytdVal, field) {
+    return [
+      fR(ratio(royVal, ytdVal)),
+      fR(ratio(hA('FY26','ROY',field), hA('FY26','YTD',field))),
+      fR(ratio(hA('FY25','ROY',field), hA('FY25','YTD',field))),
+      fR(ratio(hA('FY24','ROY',field), hA('FY24','YTD',field)))
+    ];
+  }
+  const revRatios = [
+    fR(ratio(royRev, ytdRev)),
+    fR(ratio(hPL('FY26','ROY','rev'), hPL('FY26','YTD','rev'))),
+    fR(ratio(hPL('FY25','ROY','rev'), hPL('FY25','YTD','rev'))),
+    fR(ratio(hPL('FY24','ROY','rev'), hPL('FY24','YTD','rev')))
+  ];
+  const expRatios = [
+    fR(ratio(royExp, ytdExp)),
+    fR(ratio(hPL('FY26','ROY','exp'), hPL('FY26','YTD','exp'))),
+    fR(ratio(hPL('FY25','ROY','exp'), hPL('FY25','YTD','exp'))),
+    fR(ratio(hPL('FY24','ROY','exp'), hPL('FY24','YTD','exp')))
+  ];
+  const hcExpRatios = [
+    fR(ratio(royExpHC, ytdExpHC)),
+    fR(ratio(hPL('FY26','ROY','hcExp'), hPL('FY26','YTD','hcExp'))),
+    fR(ratio(hPL('FY25','ROY','hcExp'), hPL('FY25','YTD','hcExp'))),
+    fR(ratio(hPL('FY24','ROY','hcExp'), hPL('FY24','YTD','hcExp')))
+  ];
+  const nonHcExpRatios = [
+    fR(ratio(royExpNonHC, ytdExpNonHC)),
+    fR(ratio(hPL('FY26','ROY','nonHcExp'), hPL('FY26','YTD','nonHcExp'))),
+    fR(ratio(hPL('FY25','ROY','nonHcExp'), hPL('FY25','YTD','nonHcExp'))),
+    fR(ratio(hPL('FY24','ROY','nonHcExp'), hPL('FY24','YTD','nonHcExp')))
+  ];
+  const ebitdaRatios = [
+    fR(ratio(royEbitda, ytdEbitda)),
+    fR(ratio(histEbitda('FY26','ROY'), histEbitda('FY26','YTD'))),
+    fR(ratio(histEbitda('FY25','ROY'), histEbitda('FY25','YTD'))),
+    fR(ratio(histEbitda('FY24','ROY'), histEbitda('FY24','YTD')))
+  ];
+  const cashRatios = [
+    fR(ratio(royCash, ytdCash)),
+    fR(ratio(hCF('FY26','ROY'), hCF('FY26','YTD'))),
+    fR(ratio(hCF('FY25','ROY'), hCF('FY25','YTD'))),
+    fR(ratio(hCF('FY24','ROY'), hCF('FY24','YTD')))
+  ];
+
+  // ── Table header ─────────────────────────────────────
+  const cYTD  = '#3b5180', cROY = '#1e4d2e', cRatio = '#4b5563', cHist = '#374151', cYE = '#2d3748';
+  const bgYTD = '#f0f4fb', bgROY = '#f0fdf4', bgRatio = '#fafafa', bgHistDk = '#f2f4f6', bgHistMd = '#f5f6f8', bgHistLt = '#f8f9fa', bgYE = '#e9edf2';
+
+  let head = `
+    <tr class="group-header">
+      <th class="label-col hdr-lbl" style="min-width:200px"></th>
+      <th colspan="2" style="background:${cYTD};color:#e2e8f0;text-align:center">FY27 Actuals + Forecast</th>
+      <th colspan="4" style="background:${cRatio};color:#f3f4f6;text-align:center">RoY / YTD Multiple</th>
+      <th style="background:${cYE};color:#e2e8f0;text-align:center">YE Total</th>
+    </tr>
+    <tr class="col-header">
+      <th class="label-col" style="background:#f8fafc;color:#6b7280;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Metric ($K)</th>
+      <th style="background:${bgYTD};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">YTD (Feb–May '26)</th>
+      <th style="background:${bgROY};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">RoY Fcst (Jun–Jan '27)</th>
+      <th style="background:${bgRatio};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY27 Fcst</th>
+      <th style="background:${bgHistDk};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY26 Actual</th>
+      <th style="background:${bgHistMd};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY25 Actual</th>
+      <th style="background:${bgHistLt};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY24 Actual</th>
+      <th style="background:${bgYE};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">FY27 YE Total</th>
+    </tr>`;
+
+  // ── Row helpers ───────────────────────────────────────
+  const bgs = [bgYTD, bgROY, bgRatio, bgHistDk, bgHistMd, bgHistLt, bgYE];
+
+  function brow(label, ytdVal, royVal, ratios, yeVal, opts={}) {
+    const { cls='', lc='label-col', isEop=false } = opts;
+    const vals = [ytdVal, royVal, ...ratios, yeVal];
+    let r = `<tr class="${cls}"><td class="${lc}">${label}</td>`;
+    vals.forEach((v, i) => {
+      const isRatioCol = i >= 2 && i <= 5;
+      const style = `background:${bgs[i]};text-align:right;padding:6px 10px;font-size:${isRatioCol?'11.5':'12.5'}px;${isRatioCol?'color:#4b5563;':''}`;
+      const display = (typeof v === 'string') ? v : KD(v/1e3);
+      r += `<td style="${style}">${display}</td>`;
+    });
+    r += '</tr>';
+    return r;
+  }
+  function browPct(label, ytdPct, royPct, yeVal) {
+    const vals = [
+      isNaN(ytdPct)?'—':N(ytdPct*100,1)+'%',
+      isNaN(royPct)?'—':N(royPct*100,1)+'%',
+      '—','—','—','—',
+      isNaN(yeVal)?'—':N(yeVal*100,1)+'%'
+    ];
+    let r = `<tr class="row-margin"><td class="label-indent">${label}</td>`;
+    vals.forEach((v, i) => {
+      const style = `background:${bgs[i]};text-align:right;padding:6px 10px;font-size:12.5px;font-style:italic;color:#4b5563`;
+      r += `<td style="${style}">${v}</td>`;
+    });
+    r += '</tr>';
+    return r;
+  }
+  function browHC(label, ytdVal, royVal, yeVal) {
+    const fmt = v => (v==null||isNaN(v)||v===0)?'—':N(Math.round(v));
+    const vals = [fmt(ytdVal), fmt(royVal), '—','—','—','—', fmt(yeVal)];
+    let r = `<tr><td class="label-col">${label}</td>`;
+    vals.forEach((v, i) => {
+      r += `<td style="background:${bgs[i]};text-align:right;padding:6px 10px;font-size:12.5px">${v}</td>`;
+    });
+    r += '</tr>';
+    return r;
+  }
+  function bsec(label) { return `<tr class="row-section"><td class="label-col" colspan="8">${label}</td></tr>`; }
+  function bspacer()   { return `<tr class="row-spacer"><td colspan="8"></td></tr>`; }
+
+  // ── Build rows ────────────────────────────────────────
+  let h = '';
+
+  // Precompute N+E combined ratios
+  const neRatios = [
+    fR(ratio(royNewArr+royExpArr, ytdNewArr+ytdExpArr)),
+    fR(ratio((hA('FY26','ROY','newArr')||0)+(hA('FY26','ROY','expArr')||0), (hA('FY26','YTD','newArr')||0)+(hA('FY26','YTD','expArr')||0))),
+    fR(ratio((hA('FY25','ROY','newArr')||0)+(hA('FY25','ROY','expArr')||0), (hA('FY25','YTD','newArr')||0)+(hA('FY25','YTD','expArr')||0))),
+    fR(ratio((hA('FY24','ROY','newArr')||0)+(hA('FY24','ROY','expArr')||0), (hA('FY24','YTD','newArr')||0)+(hA('FY24','YTD','expArr')||0)))
+  ];
+
+  h += bsec('ARR');
+  h += brow('New ARR',           ytdNewArr, royNewArr, arrRatios(royNewArr, ytdNewArr, 'newArr'), yeNewArr);
+  h += brow('Expansion ARR',     ytdExpArr, royExpArr, arrRatios(royExpArr, ytdExpArr, 'expArr'), yeExpArr);
+  h += brow('New + Expansion',   ytdNewArr+ytdExpArr, royNewArr+royExpArr, neRatios, yeNewArr+yeExpArr, { cls:'row-subtotal' });
+  h += brow('Churn / Downsell',  ytdChurn, royChurn, arrRatios(royChurn, ytdChurn, 'churn'), yeChurn);
+  // EOP ARR — point-in-time, no ratio
+  const eopNa = ['—','—','—','—'];
+  h += brow('EOP ARR',           ytdEopArr, royEopArr, eopNa, yeEopArr, { cls:'row-subtotal' });
+  h += bspacer();
+
+  h += bsec('Revenue & Profitability');
+  h += brow('Revenue',            ytdRev,       royRev,       revRatios,      yeRev,    { cls:'row-subtotal' });
+  h += brow('Headcount Costs',   ytdExpHC,     royExpHC,     hcExpRatios,    yeExpHC,  { lc:'label-indent' });
+  h += brow('Non-HC Costs',      ytdExpNonHC,  royExpNonHC,  nonHcExpRatios, yeExpNonHC, { lc:'label-indent' });
+  h += brow('Total Expense',     ytdExp,       royExp,       expRatios,      yeExp,    { cls:'row-subtotal' });
+  h += brow('EBITDA',            ytdEbitda,    royEbitda,    ebitdaRatios,   yeEbitda, { cls:'row-subtotal' });
+  h += browPct('EBITDA Margin %',
+    ytdRev ? ytdEbitda/ytdRev : NaN,
+    royRev ? royEbitda/royRev : NaN,
+    yeRev  ? yeEbitda/yeRev   : NaN);
+  h += brow('Cash Burn',         ytdCash, royCash, cashRatios, yeCash);
+  h += bspacer();
+
+  h += bsec('Headcount');
+  h += browHC('HC EOP', ytdHC, royHC, yeHC);
+
+  document.getElementById('bridgeHead').innerHTML = head;
+  document.getElementById('bridgeBody').innerHTML = h;
+  document.getElementById('bridgeFootnote').textContent =
+    'YTD = Feb–May 2026 actuals (mrp_financials + customer_month). RoY = Jun 2026–Jan 2027 Live Model. ' +
+    'RoY/YTD multiples show how much more activity falls in the back 8 months vs. front 4 months of the fiscal year. ' +
+    'P&L history available FY24–FY26 (mrp_financials). ARR & Cash history available FY24–FY26. ' +
+    'Cash Burn = change in Cash + Equity balance (mrp_cash). HC EOP = Jan 2027 Live Model; YTD HC = Budget proxy.';
+}
+
+// ─── INIT ────────────────────────────────────────────
+async function init() {
+  document.getElementById('loadingMsg').textContent = 'Loading FY27 data…';
+  try {
+    const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
+           histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows] = await Promise.all([
+      execSQL(Q_BUDGET),
+      execSQL(Q_ACTUALS),
+      execSQL(Q_LIVE_MODEL),
+      execSQL(Q_ARR),
+      execSQL(Q_KPI),
+      execSQL(Q_CASH),
+      execSQL(Q_MONTHLY_ACTUALS),
+      execSQL(Q_MONTHLY_LIVE),
+      execSQL(Q_HIST_PL),
+      execSQL(Q_HIST_ARR),
+      execSQL(Q_HIST_CASH),
+      execSQL(Q_MONTHLY_ACTUALS_DEPT),
+      execSQL(Q_MONTHLY_LIVE_DEPT)
+    ]);
+
+    const bud    = makeAccessors(processForcast(budRows));
+    const ytdAcc = makeAccessors(processActuals(actualsRows));
+    const royAcc = makeAccessors(processForcast(liveRows));
+    const blended = makeAccessors(mergeData(processActuals(actualsRows), processForcast(liveRows)));
+    const arr    = processARR(arrRows);
+    const kpi    = processKPI(kpiRows);
+    const cash   = processCash(cashRows);
+    const hist   = processHistorical(histPLRows, histARRRows, histCashRows);
+
+    // Build monthly rev/exp lookup for quarterly view
+    const monthlyRevRows = [
+      ...maRows.map(r => ({ dt: r.DT.slice(0,10), rev: +(r.REVENUE||0), exp: +(r.EXPENSE||0), src: 'actual' })),
+      ...mlRows.map(r => ({ dt: r.DT.slice(0,10), rev: +(r.REVENUE||0), exp: +(r.EXPENSE||0), src: 'model' }))
+    ];
+
+    document.getElementById('execHead').innerHTML = makeHead('220px');
+    document.getElementById('deptHead').innerHTML = makeHead('220px');
+
+    buildExec(bud, blended, arr, kpi, cash);
+    buildPL(bud, blended);
+    buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows);
+    buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly);
+    buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist);
+
+    const now = new Date();
+    document.getElementById('asOfBadge').textContent =
+      'As of ' + now.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+    const fn = `Budget: ${budRows.length.toLocaleString()} rows · Actuals: ${actualsRows.length.toLocaleString()} rows (Feb–May) · Live Model: ${liveRows.length.toLocaleString()} rows (Jun–Jan) · FY27 = Feb 2026 – Jan 2027`;
+    document.getElementById('execFootnote').textContent = fn;
+    document.getElementById('deptFootnote').textContent = fn;
+
+  } catch (err) {
+    const banner = document.getElementById('errorBanner');
+    banner.style.display = 'block';
+    banner.textContent = 'Error loading data: ' + err.message;
+    ['execBody','deptBody','qtrDeptBody','qtrBody','bridgeBody'].forEach(id => {
+      document.getElementById(id).innerHTML =
+        `<tr><td class="label-col" colspan="8" style="color:#991b1b;padding:20px">Failed to load — see error above.</td></tr>`;
+    });
+  } finally {
+    document.getElementById('loadingOverlay').style.display = 'none';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
