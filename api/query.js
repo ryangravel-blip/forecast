@@ -5,22 +5,26 @@ snowflake.configure({ logLevel: 'WARN' });
 
 let _conn = null;
 
-function parsePrivateKey(raw) {
-  // Vercel may store newlines as literal \n — normalize either way
+function getPrivateKeyPem(raw) {
+  // Normalize escaped newlines (Vercel stores multiline env vars this way)
   const pem = raw.replace(/\\n/g, '\n').trim();
 
-  // Verify it looks like a PEM
   if (!pem.startsWith('-----BEGIN')) {
     throw new Error('SNOWFLAKE_PRIVATE_KEY does not look like a PEM — check the env var value');
   }
 
-  // snowflake-sdk needs a crypto KeyObject for JWT auth
+  const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE || undefined;
+
+  // Import the key (handles PKCS#1 or PKCS#8, encrypted or not)
+  let keyObj;
   try {
-    const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE || undefined;
-    return crypto.createPrivateKey({ key: pem, ...(passphrase ? { passphrase } : {}) });
+    keyObj = crypto.createPrivateKey({ key: pem, ...(passphrase ? { passphrase } : {}) });
   } catch (e) {
     throw new Error('Failed to parse private key: ' + e.message);
   }
+
+  // Snowflake SDK JWT auth requires unencrypted PKCS#8 PEM
+  return keyObj.export({ type: 'pkcs8', format: 'pem' });
 }
 
 function connect() {
@@ -29,7 +33,7 @@ function connect() {
   const rawKey = process.env.SNOWFLAKE_PRIVATE_KEY || '';
   if (!rawKey) throw new Error('SNOWFLAKE_PRIVATE_KEY env var is not set');
 
-  const privateKey = parsePrivateKey(rawKey);
+  const privateKey = getPrivateKeyPem(rawKey);
 
   const conn = snowflake.createConnection({
     account:       process.env.SNOWFLAKE_ACCOUNT,
