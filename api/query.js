@@ -1,34 +1,41 @@
 const snowflake = require('snowflake-sdk');
+const crypto    = require('crypto');
 
 snowflake.configure({ logLevel: 'WARN' });
 
-const REQUIRED_ENV = [
-  'SNOWFLAKE_ACCOUNT',
-  'SNOWFLAKE_USERNAME',
-  'SNOWFLAKE_PRIVATE_KEY',
-  'SNOWFLAKE_WAREHOUSE',
-  'SNOWFLAKE_ROLE',
-];
-
 let _conn = null;
+
+function parsePrivateKey(raw) {
+  // Vercel may store newlines as literal \n — normalize either way
+  const pem = raw.replace(/\\n/g, '\n').trim();
+
+  // Verify it looks like a PEM
+  if (!pem.startsWith('-----BEGIN')) {
+    throw new Error('SNOWFLAKE_PRIVATE_KEY does not look like a PEM — check the env var value');
+  }
+
+  // snowflake-sdk needs a crypto KeyObject for JWT auth
+  try {
+    const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE || undefined;
+    return crypto.createPrivateKey({ key: pem, ...(passphrase ? { passphrase } : {}) });
+  } catch (e) {
+    throw new Error('Failed to parse private key: ' + e.message);
+  }
+}
 
 function connect() {
   if (_conn) return Promise.resolve(_conn);
 
-  const missing = REQUIRED_ENV.filter(k => !process.env[k]);
-  if (missing.length) {
-    return Promise.reject(new Error(`Missing env vars: ${missing.join(', ')}`));
-  }
+  const rawKey = process.env.SNOWFLAKE_PRIVATE_KEY || '';
+  if (!rawKey) throw new Error('SNOWFLAKE_PRIVATE_KEY env var is not set');
 
-  const privateKey = process.env.SNOWFLAKE_PRIVATE_KEY.replace(/\\n/g, '\n');
-  const passphrase  = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE || undefined;
+  const privateKey = parsePrivateKey(rawKey);
 
   const conn = snowflake.createConnection({
     account:       process.env.SNOWFLAKE_ACCOUNT,
     username:      process.env.SNOWFLAKE_USERNAME,
     authenticator: 'SNOWFLAKE_JWT',
     privateKey,
-    ...(passphrase ? { privateKeyPass: passphrase } : {}),
     warehouse:     process.env.SNOWFLAKE_WAREHOUSE,
     role:          process.env.SNOWFLAKE_ROLE,
     application:   'mrp-reports',
@@ -65,8 +72,8 @@ module.exports = async (req, res) => {
   const { sql } = req.body || {};
   if (!sql || typeof sql !== 'string') return res.status(400).json({ error: 'Missing sql' });
 
-  const first = sql.trim().toUpperCase().slice(0, 4);
-  if (first !== 'SELE' && first !== 'WITH') {
+  const first = sql.trim().toUpperCase();
+  if (!first.startsWith('SELECT') && !first.startsWith('WITH')) {
     return res.status(403).json({ error: 'Only SELECT queries permitted' });
   }
 
