@@ -550,10 +550,10 @@ function makeHead(labelW='220px') {
   </tr>
   <tr class="col-header">
     <th class="label-col" style="width:${labelW}">FY27 (Feb '26 – Jan '27)</th>
-    <th class="hdr-spacer"></th><th class="col-bud">BoD Approved ($K)</th>
-    <th class="hdr-spacer"></th><th class="col-fcst divider-left">Forecast ($K)</th>
+    <th class="hdr-spacer"></th><th class="col-bud">BoD Approved ($M)</th>
+    <th class="hdr-spacer"></th><th class="col-fcst divider-left">Forecast ($M)</th>
     <th class="hdr-spacer"></th>
-    <th class="col-vd divider-left">$ Var ($K)</th><th class="col-vp">% Var</th>
+    <th class="col-vd divider-left">$ Var ($M)</th><th class="col-vp">% Var</th>
   </tr>`;
 }
 
@@ -569,10 +569,10 @@ function row(label, bud, fcst, opts={}) {
   const vd=fcst-bud, vp=bud!==0?vd/Math.abs(bud):null, vc=varClass(fcst,bud,varDir);
   return `<tr class="${cls}">
     <td class="${lc}">${label}</td>
-    <td class="hdr-spacer"></td><td class="col-bud">${KD(bud/1e3)}</td>
-    <td class="hdr-spacer"></td><td class="col-fcst divider-left">${KD(fcst/1e3)}</td>
+    <td class="hdr-spacer"></td><td class="col-bud">${KD(bud/1e6)}</td>
+    <td class="hdr-spacer"></td><td class="col-fcst divider-left">${KD(fcst/1e6)}</td>
     <td class="hdr-spacer"></td>
-    <td class="col-vd divider-left ${vc}">${KD(vd/1e3)}</td>
+    <td class="col-vd divider-left ${vc}">${KD(vd/1e6)}</td>
     <td class="col-vp ${vc}">${pctFn(vp)}</td>
   </tr>`;
 }
@@ -589,7 +589,7 @@ function rowPct(label, budPct, fcstPct, opts={}) {
   </tr>`;
 }
 
-// HC row: integer headcount, no $K formatting
+// HC row: integer headcount, no $M formatting
 function rowHC(label, budHC, fcstHC) {
   const vd=Math.round(fcstHC-budHC), vc=varClass(fcstHC,budHC,-1);
   const fmt=v=>v==null||isNaN(v)?'—':N(Math.round(v));
@@ -828,7 +828,7 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
   allCols.forEach((c,i) => {
     head += `<th style="background:${hdrBg[i]};color:${hdrFg[i]}">${c}</th>`;
   });
-  head += '</tr><tr class="col-header"><th class="label-col" style="background:#f8fafc;color:#6b7280;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Forecast ($K)</th>';
+  head += '</tr><tr class="col-header"><th class="label-col" style="background:#f8fafc;color:#6b7280;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Forecast ($M)</th>';
   allSubs.forEach((s,i) => {
     head += `<th style="background:${colBg[i]};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">${s}</th>`;
   });
@@ -840,7 +840,7 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
     const { cls='', lc='label-col' } = opts;
     let r = `<tr class="${cls}"><td class="${lc}">${label}</td>`;
     vals.forEach((v,i) => {
-      r += `<td style="background:${colBg[i]};text-align:right;padding:6px 10px;font-size:12.5px">${KD(v/1e3)}</td>`;
+      r += `<td style="background:${colBg[i]};text-align:right;padding:6px 10px;font-size:12.5px">${KD(v/1e6)}</td>`;
     });
     r += '</tr>';
     return r;
@@ -937,7 +937,7 @@ function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
   // Header
   const hdrBg = q => q.act ? '#fef9ec' : '#f0fdf4';
   const hdrFg = q => q.act ? '#78350f' : '#14532d';
-  let head = `<tr class="col-header"><th class="label-col" style="min-width:210px">Dept / Class ($K)</th>` +
+  let head = `<tr class="col-header"><th class="label-col" style="min-width:210px">Dept / Class ($M)</th>` +
     QTRS.map(q=>`<th style="text-align:right;padding:7px 10px;background:${hdrBg(q)};color:${hdrFg(q)};white-space:nowrap">
       ${q.label}<br><span style="font-weight:400;font-size:10px;opacity:.75">${q.sub}</span></th>`).join('') +
     `<th style="text-align:right;padding:7px 10px;background:#e9edf2;font-weight:700">FY27 Total</th></tr>`;
@@ -948,8 +948,8 @@ function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
     if (vals.every(v=>v===0)&&ye===0) return '';
     const fw = cls.includes('total')||cls.includes('subtotal') ? 600 : 400;
     return `<tr class="${cls}"><td class="${lc}">${lbl}</td>` +
-      vals.map(v=>`<td style="text-align:right;padding:6px 10px">${KD(v/1e3)}</td>`).join('') +
-      `<td style="text-align:right;padding:6px 10px;font-weight:${fw}">${KD(ye/1e3)}</td></tr>`;
+      vals.map(v=>`<td style="text-align:right;padding:6px 10px">${KD(v/1e6)}</td>`).join('') +
+      `<td style="text-align:right;padding:6px 10px;font-weight:${fw}">${KD(ye/1e6)}</td></tr>`;
   };
   const secRow = lbl => `<tr class="row-section"><td class="label-col" colspan="${nc}">${lbl}</td></tr>`;
   const spacer  = ()  => `<tr class="row-spacer"><td colspan="${nc}"></td></tr>`;
@@ -1170,7 +1170,7 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
       <th style="background:${cYE};color:#e2e8f0;text-align:center">YE Total</th>
     </tr>
     <tr class="col-header">
-      <th class="label-col" style="background:#f8fafc;color:#6b7280;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Metric ($K)</th>
+      <th class="label-col" style="background:#f8fafc;color:#6b7280;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Metric ($M)</th>
       <th style="background:${bgYTD};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">YTD (Feb–May '26)</th>
       <th style="background:${bgROY};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">RoY Fcst (Jun–Jan '27)</th>
       <th style="background:${bgRatio};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY27 Fcst</th>
@@ -1190,7 +1190,7 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
     vals.forEach((v, i) => {
       const isRatioCol = i >= 2 && i <= 5;
       const style = `background:${bgs[i]};text-align:right;padding:6px 10px;font-size:${isRatioCol?'11.5':'12.5'}px;${isRatioCol?'color:#4b5563;':''}`;
-      const display = (typeof v === 'string') ? v : KD(v/1e3);
+      const display = (typeof v === 'string') ? v : KD(v/1e6);
       r += `<td style="${style}">${display}</td>`;
     });
     r += '</tr>';
