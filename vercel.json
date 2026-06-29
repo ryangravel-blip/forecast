@@ -1,8 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/pipeline.py": { "maxDuration": 30 }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
