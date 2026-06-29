@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "functions": {
+    "api/pipeline.py": { "runtime": "python3.12", "maxDuration": 30 }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    }
+  ]
+}

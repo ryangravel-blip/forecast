@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New Sales Pipeline — Amperity</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f2f5; color: #1a1a2e; font-size: 13px; }
+  .tab-bar { background: #1F3864; display: flex; align-items: flex-end; padding: 0 24px; gap: 4px; }
+  .tab { padding: 10px 20px; font-size: 13px; font-weight: 600; color: #a8bcd4; cursor: pointer; border-radius: 6px 6px 0 0; border: none; background: none; transition: background .15s, color .15s; }
+  .tab:hover { background: #264a82; color: #fff; }
+  .tab.active { background: #f0f2f5; color: #1F3864; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  header { background: #1F3864; color: #fff; padding: 14px 28px 0; }
+  header .title-row { display: flex; align-items: baseline; gap: 16px; }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header .sub { font-size: 12px; color: #a8bcd4; }
+  .summary { display: flex; gap: 12px; padding: 16px 24px; flex-wrap: wrap; background: #fff; border-bottom: 1px solid #dee2e8; }
+  .card { background: #f8f9fc; border: 1px solid #e4e8ef; border-radius: 6px; padding: 10px 16px; min-width: 120px; flex: 1; }
+  .card-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; margin-bottom: 4px; }
+  .card-count { font-size: 20px; font-weight: 700; }
+  .total-card { background: #1F3864; color: #fff; }
+  .total-card .card-label { color: #a8bcd4; }
+  .controls { padding: 10px 24px; background: #fff; border-bottom: 1px solid #dee2e8; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .controls input[type=text] { padding: 6px 12px; border: 1px solid #cdd3dc; border-radius: 5px; font-size: 12px; width: 220px; outline: none; }
+  .controls input[type=text]:focus { border-color: #1F3864; }
+  .controls select { padding: 6px 10px; border: 1px solid #cdd3dc; border-radius: 5px; font-size: 12px; outline: none; background: #fff; }
+  .controls label { font-size: 12px; color: #6b7280; }
+  .count-label { font-size: 11px; color: #6b7280; }
+  .forecast-bar { background: #fff; border-bottom: 1px solid #dee2e8; padding: 14px 24px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .fcard { background: #f8f9fc; border: 1px solid #e4e8ef; border-radius: 6px; padding: 10px 18px; min-width: 150px; }
+  .fcard-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; margin-bottom: 3px; }
+  .fcard-val { font-size: 22px; font-weight: 700; color: #1F3864; }
+  .fcard.green { border-top: 3px solid #1a7f37; }
+  .fcard.green .fcard-val { color: #1a7f37; }
+  .fcard.amber { border-top: 3px solid #7d5a00; }
+  .fcard.amber .fcard-val { color: #7d5a00; }
+  .forecast-note { font-size: 11px; color: #6b7280; margin-left: auto; line-height: 1.6; }
+  .assumptions-wrap { padding: 16px 24px; background: #fff; border-bottom: 1px solid #dee2e8; display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; }
+  .assumptions-wrap h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; margin-bottom: 10px; }
+  .assumptions-table { border-collapse: collapse; }
+  .assumptions-table td { padding: 5px 12px 5px 0; vertical-align: middle; }
+  .pipe-summary-table { border-collapse: collapse; min-width: 380px; }
+  .pipe-summary-table th { padding: 8px 14px; background: #1F3864; color: #d0dae8; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; text-align: right; white-space: nowrap; border-right: 1px solid #2d4f80; }
+  .pipe-summary-table th:first-child { text-align: left; }
+  .pipe-summary-table th:last-child { border-right: none; }
+  .pipe-summary-table td { padding: 7px 14px; border-bottom: 1px solid #edf0f5; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+  .pipe-summary-table td:first-child { text-align: left; font-weight: 600; color: #374151; }
+  .pipe-summary-table tr.total-row td { background: #f0f2f5; font-weight: 700; border-top: 2px solid #dee2e8; color: #1F3864; }
+  .weighted-col { color: #1a7f37; font-weight: 700 !important; }
+  .summary-section { padding: 20px 24px 0; }
+  .monthly-table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 28px; }
+  .monthly-table thead tr { background: #1F3864; }
+  .monthly-table th { padding: 10px 16px; text-align: right; font-size: 11px; font-weight: 600; color: #d0dae8; text-transform: uppercase; letter-spacing: .4px; border-right: 1px solid #2d4f80; white-space: nowrap; }
+  .monthly-table th:first-child { text-align: left; }
+  .monthly-table th:last-child { border-right: none; }
+  .monthly-table td { padding: 9px 16px; border-bottom: 1px solid #edf0f5; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .monthly-table td:first-child { text-align: left; font-weight: 600; color: #374151; }
+  .monthly-table tr.alt { background: #f9fafb; }
+  .monthly-table tr.total-row td { background: #eef2fa; font-weight: 700; color: #1F3864; border-top: 2px solid #c8d4e8; }
+  .monthly-table tr.qtr-row td { background: #f5f7fb; font-size: 11px; color: #6b7280; font-weight: 600; padding: 4px 16px; border-bottom: none; }
+  .col-fl { color: #1a4971; }
+  .col-up { color: #7d5a00; }
+  .col-total { color: #1a7f37; font-weight: 700 !important; }
+  .bar-cell { min-width: 120px; }
+  .bar-bg { background: #edf0f5; border-radius: 3px; height: 8px; overflow: hidden; margin-top: 3px; }
+  .bar-fill { height: 8px; border-radius: 3px; transition: width .3s; }
+  .table-wrap { overflow-x: auto; padding: 0 24px 32px; }
+  table.data-table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-top: 16px; }
+  table.data-table thead tr { background: #1F3864; }
+  table.data-table th { padding: 10px 11px; text-align: left; font-size: 11px; font-weight: 600; color: #d0dae8; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; border-right: 1px solid #2d4f80; cursor: pointer; user-select: none; }
+  table.data-table th:last-child { border-right: none; }
+  table.data-table th:hover { background: #264a82; color: #fff; }
+  th.sorted-asc::after  { content: " ↑"; color: #7eb8f7; }
+  th.sorted-desc::after { content: " ↓"; color: #7eb8f7; }
+  tbody tr { border-bottom: 1px solid #edf0f5; transition: background .1s; }
+  tbody tr.alt { background: #f9fafb; }
+  tbody tr:hover { background: #ebf0fa !important; }
+  tbody tr.excluded { opacity: .4; }
+  td { padding: 8px 11px; vertical-align: middle; white-space: nowrap; }
+  td.acct { min-width: 190px; white-space: normal; }
+  td.acct strong { font-weight: 600; }
+  td.mono { font-family: "SF Mono","Fira Code",monospace; font-size: 10px; color: #6b7280; }
+  td.small { font-size: 12px; }
+  td.center { text-align: center; }
+  td.money { text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+  td.total-arr { font-weight: 700; color: #1F3864; }
+  td.qtr { font-weight: 600; color: #374151; }
+  .hidden { display: none !important; }
+  .toggle-wrap { position: relative; display: inline-block; width: 40px; height: 22px; }
+  .toggle-wrap input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: #d1d5db; border-radius: 22px; transition: .2s; }
+  .toggle-slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  .toggle-wrap input:checked + .toggle-slider { background: #1a7f37; }
+  .toggle-wrap input:checked + .toggle-slider::before { transform: translateX(18px); }
+  input.adj-date { border: 1px solid #cdd3dc; border-radius: 4px; padding: 4px 6px; font-size: 12px; width: 120px; outline: none; }
+  input.adj-date:focus { border-color: #1F3864; }
+  .pct-wrap { display: flex; align-items: center; gap: 2px; justify-content: center; }
+  input.win-pct, input.stage-global-pct { border: 1px solid #cdd3dc; border-radius: 4px; padding: 4px 6px; font-size: 12px; width: 52px; text-align: right; outline: none; }
+  input.win-pct:focus, input.stage-global-pct:focus { border-color: #1F3864; }
+  .pct-sign { font-size: 12px; color: #6b7280; }
+  td.weighted-cell, td.pipe-weighted { font-weight: 700; color: #1F3864; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+  td.stage-pct-display { color: #6b7280; }
+  .export-btn { margin-left: auto; background: #2d6a4f !important; color: #d4f7dc !important; border-radius: 6px 6px 0 0; font-size: 12px !important; }
+  .export-btn:hover { background: #1a7f37 !important; color: #fff !important; }
+  .refresh-btn { background: #162e4a !important; color: #7eb8f7 !important; border-radius: 6px 6px 0 0; font-size: 12px !important; }
+  .refresh-btn:hover { background: #264a82 !important; color: #fff !important; }
+  #loadingOverlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:999; align-items:center; justify-content:center; flex-direction:column; gap:14px; }
+  #loadingOverlay.show { display:flex; }
+  .spinner { width:40px; height:40px; border:4px solid #a8bcd4; border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spinner-msg { color:#fff; font-size:14px; font-weight:600; }
+  .error-banner { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; padding:10px 24px; font-size:12px; display:none; }
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="spinner-msg">Loading live pipeline from Snowflake…</div>
+</div>
+
+<header>
+  <div class="title-row">
+    <h1>New Sales Pipeline</h1>
+    <span class="sub" id="headerSub">Amperity · Renewals &amp; Pilots excluded · Source: Salesforce via Snowflake · loading…</span>
+  </div>
+  <div class="tab-bar">
+    <button class="tab active" onclick="showTab('pipeline',this)">Full Pipeline</button>
+    <button class="tab" onclick="showTab('forecast',this)">Q2 FY2027 Forecast</button>
+    <button class="tab" onclick="showTab('pipeline-fc',this)">Pipeline Forecast</button>
+    <button class="tab" onclick="showTab('summary',this)">Summary</button>
+    <button class="tab refresh-btn" onclick="loadData()" title="Reload live data from Snowflake">&#8635; Refresh</button>
+    <button class="tab export-btn" onclick="exportSnapshot()" title="Download a snapshot with forecast values locked in">&#8595; Export snapshot</button>
+  </div>
+</header>
+
+<div class="error-banner" id="errorBanner"></div>
+
+<!-- TAB 1 -->
+<div id="tab-pipeline" class="tab-panel active">
+  <div class="summary">
+    <div class="card total-card"><div class="card-label">Total opps</div><div class="card-count" id="statsOpps">—</div></div>
+    <div class="card total-card"><div class="card-label">Total ARR</div><div class="card-count" id="statsArr">—</div></div>
+    <div class="card total-card"><div class="card-label">Product ARR</div><div class="card-count" id="statsProduct">—</div></div>
+    <div id="summaryCards" style="display:contents"></div>
+  </div>
+  <div class="controls">
+    <label>Search:</label>
+    <input type="text" id="search" placeholder="Account, owner, territory…" oninput="filterTable()">
+    <label>Stage:</label>
+    <select id="stageFilter" onchange="filterTable()">
+      <option value="">All stages</option>
+      <option>Stage 5 &#8211; Negotiation</option><option>Stage 4 &#8211; Selection</option>
+      <option>Stage 4 &#8211; Proposal &amp; Plan</option>
+      <option>Stage 3 - Validation</option><option>Stage 2 - Solution Identification</option>
+      <option>Stage 1 - Discovery</option><option>Stage 0 - Initiate - SQL</option>
+    </select>
+    <label>Type:</label>
+    <select id="typeFilter" onchange="filterTable()">
+      <option value="">All types</option><option>Full License</option><option>Upsell</option>
+    </select>
+    <label>Quarter:</label>
+    <select id="qtrFilter" onchange="filterTable()">
+      <option value="">All quarters</option>
+      <option>2027Q2</option><option>2027Q3</option><option>2027Q4</option>
+      <option>2028Q1</option><option>2028Q2</option><option>2028Q3</option>
+    </select>
+    <span class="count-label" id="visibleCount"></span>
+  </div>
+  <div class="table-wrap">
+  <table id="pipeTable" class="data-table">
+    <thead><tr>
+      <th onclick="sortTable(0)">Opp ID</th><th onclick="sortTable(1)">Account</th>
+      <th onclick="sortTable(2)">Stage</th><th onclick="sortTable(3)">RVP Override</th>
+      <th onclick="sortTable(4)">Last Stage Chg</th><th onclick="sortTable(5)">Created</th>
+      <th onclick="sortTable(6)">Close Date</th><th onclick="sortTable(7)">Type</th>
+      <th onclick="sortTable(8)">Owner</th><th onclick="sortTable(9)">Territory</th>
+      <th onclick="sortTable(10)">Product ARR</th><th onclick="sortTable(11)">Services ARR</th>
+      <th onclick="sortTable(12)">Total ARR</th><th onclick="sortTable(13)"># Pushes</th>
+      <th onclick="sortTable(14)">Days Open</th><th onclick="sortTable(15)">Days in Stage</th>
+      <th onclick="sortTable(16)">Close Qtr</th>
+    </tr></thead>
+    <tbody id="tableBody"></tbody>
+  </table></div>
+</div>
+
+<!-- TAB 2 -->
+<div id="tab-forecast" class="tab-panel">
+  <div class="controls">
+    <label>Stage:</label>
+    <select id="fcStageFilter" onchange="filterForecast()">
+      <option value="">All stages</option>
+      <option>Stage 5 &#8211; Negotiation</option><option>Stage 4 &#8211; Selection</option>
+      <option>Stage 4 &#8211; Proposal &amp; Plan</option>
+      <option>Stage 3 - Validation</option><option>Stage 2 - Solution Identification</option>
+      <option>Stage 1 - Discovery</option><option>Stage 0 - Initiate - SQL</option>
+    </select>
+    <label>RVP override:</label>
+    <select id="fcRvpFilter" onchange="filterForecast()">
+      <option value="">All</option>
+      <option>2. Floor</option><option>3. Most Likely</option>
+      <option>4. Best Case</option><option>5. Pipeline</option><option>6. Closed Lost</option>
+    </select>
+    <span class="count-label" id="fcVisibleCount"></span>
+  </div>
+  <div class="forecast-bar">
+    <div class="fcard green"><div class="fcard-label">Deals closing</div><div class="fcard-val" id="fc-count">—</div></div>
+    <div class="fcard green"><div class="fcard-label">Committed ARR</div><div class="fcard-val" id="fc-committed">—</div></div>
+    <div class="fcard amber"><div class="fcard-label">Weighted ARR</div><div class="fcard-val" id="fc-weighted">—</div></div>
+    <div class="fcard"><div class="fcard-label">Total Q2 Pipeline</div><div class="fcard-val" id="fc-total">—</div></div>
+    <span class="forecast-note">FY2027 Q2 · May 1 – Jul 31, 2026<br>Toggle off deals you don't expect to close this quarter</span>
+  </div>
+  <div class="table-wrap">
+  <table class="data-table">
+    <thead><tr>
+      <th style="width:54px">Will close?</th><th>Account</th><th>Stage</th>
+      <th>Owner</th><th>RVP Override</th><th>Type</th>
+      <th>Adj. close date</th><th>Total ARR</th><th>Win %</th><th>Weighted ARR</th>
+    </tr></thead>
+    <tbody id="forecastBody"></tbody>
+  </table></div>
+</div>
+
+<!-- TAB 3 -->
+<div id="tab-pipeline-fc" class="tab-panel">
+  <div class="controls">
+    <label>Stage:</label>
+    <select id="pfStageFilter" onchange="filterPipelineFc()">
+      <option value="">All stages</option>
+      <option>Stage 5 &#8211; Negotiation</option><option>Stage 4 &#8211; Selection</option>
+      <option>Stage 4 &#8211; Proposal &amp; Plan</option>
+      <option>Stage 3 - Validation</option><option>Stage 2 - Solution Identification</option>
+      <option>Stage 1 - Discovery</option><option>Stage 0 - Initiate - SQL</option>
+    </select>
+    <label>RVP override:</label>
+    <select id="pfRvpFilter" onchange="filterPipelineFc()">
+      <option value="">All</option>
+      <option>2. Floor</option><option>3. Most Likely</option>
+      <option>4. Best Case</option><option>5. Pipeline</option><option>6. Closed Lost</option>
+    </select>
+    <span class="count-label" id="pfVisibleCount"></span>
+  </div>
+  <div class="forecast-bar">
+    <div class="fcard"><div class="fcard-label">Deals in pipeline</div><div class="fcard-val" id="pf-count">—</div></div>
+    <div class="fcard"><div class="fcard-label">Total pipeline ARR</div><div class="fcard-val" id="pf-total">—</div></div>
+    <div class="fcard amber"><div class="fcard-label">Weighted ARR</div><div class="fcard-val" id="pf-weighted">—</div></div>
+    <span class="forecast-note">All deals outside Q2 FY2027<br>Adjust stage win % to recalculate</span>
+  </div>
+  <div class="assumptions-wrap">
+    <div>
+      <h3>Win % by stage</h3>
+      <table class="assumptions-table" id="stageControls"></table>
+    </div>
+    <div>
+      <h3>Weighted ARR by quarter</h3>
+      <table class="pipe-summary-table" id="pipeSummaryTable">
+        <thead><tr>
+          <th>Quarter</th><th>Pipeline ARR</th><th># Deals</th>
+          <th class="weighted-col">Weighted ARR</th>
+        </tr></thead>
+        <tbody id="pipeSummaryBody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="table-wrap">
+  <table class="data-table">
+    <thead><tr>
+      <th>Account</th><th>Stage</th><th>Owner</th><th>RVP Override</th>
+      <th>Type</th><th>Close Qtr</th><th>Total ARR</th><th>Win %</th><th>Weighted ARR</th>
+    </tr></thead>
+    <tbody id="pipelineBody"></tbody>
+  </table></div>
+</div>
+
+<!-- TAB 4 -->
+<div id="tab-summary" class="tab-panel">
+  <div class="summary-section">
+    <p style="font-size:12px;color:#6b7280;margin-bottom:16px">
+      Prior months show closed-won actuals. Current and future months show weighted pipeline forecast.
+      Adjustments in the forecast tabs update automatically.
+    </p>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px">
+      <div class="fcard green" style="min-width:160px"><div class="fcard-label">FY27 total (actuals + forecast)</div><div class="fcard-val" id="sum-fy27">—</div></div>
+      <div class="fcard" style="border-top:3px solid #374151;min-width:160px"><div class="fcard-label">FY27 actuals (closed won)</div><div class="fcard-val" id="sum-fy27-actual">—</div></div>
+      <div class="fcard amber" style="min-width:160px"><div class="fcard-label">FY27 weighted forecast</div><div class="fcard-val" id="sum-fy27-fc">—</div></div>
+      <div class="fcard" style="border-top:3px solid #1a4971;min-width:160px"><div class="fcard-label">FY28 weighted forecast</div><div class="fcard-val col-fl" id="sum-fy28">—</div></div>
+    </div>
+    <table class="monthly-table">
+      <thead>
+        <tr>
+          <th rowspan="2" style="vertical-align:bottom">Month</th>
+          <th colspan="2" style="text-align:center;border-bottom:1px solid #2d4f80;color:#a8d4a8">Actuals (closed won)</th>
+          <th colspan="3" style="text-align:center;border-bottom:1px solid #2d4f80;color:#f0d080">Weighted forecast</th>
+          <th rowspan="2" class="col-total bar-cell" style="vertical-align:bottom">Total</th>
+        </tr>
+        <tr>
+          <th class="col-fl" style="background:#162e4a">Full License</th>
+          <th class="col-up" style="background:#162e4a">Upsell</th>
+          <th class="col-fl" style="background:#162e4a">FL weighted</th>
+          <th class="col-up" style="background:#162e4a">Up weighted</th>
+          <th style="background:#162e4a;color:#a0c8a0"># deals</th>
+        </tr>
+      </thead>
+      <tbody id="summaryBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const CURRENT_QTR = '2027Q2';
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const QTRS = ["2027Q2","2027Q3","2027Q4","2028Q1","2028Q2","2028Q3","2028Q4","2029Q1","2029Q2","2029Q3","2029Q4","2030Q1","2030Q2","2031Q2"];
+
+const STAGE_WIN_PCT = {
+  'Stage 5 – Negotiation': 80,
+  'Stage 4 – Selection': 50,
+  'Stage 4 – Proposal & Plan': 40,
+  'Stage 3 - Validation': 25,
+  'Stage 2 - Solution Identification': 15,
+  'Stage 1 - Discovery': 10,
+  'Stage 0 - Initiate - SQL': 5,
+};
+const STAGE_COLORS = {
+  'Stage 5 – Negotiation':  ['#1a7f37','#d4f7dc'],
+  'Stage 4 – Selection':    ['#7d5a00','#fff3cd'],
+  'Stage 4 – Proposal & Plan': ['#7d5a00','#fff8e1'],
+  'Stage 3 - Validation':              ['#0b5394','#dce8f9'],
+  'Stage 2 - Solution Identification': ['#1a4971','#eaf4fd'],
+  'Stage 1 - Discovery':               ['#444444','#f5f5f5'],
+  'Stage 0 - Initiate - SQL':          ['#555555','#eeeeee'],
+};
+const STAGE_ORDER = [
+  'Stage 5 – Negotiation','Stage 4 – Selection','Stage 4 – Proposal & Plan',
+  'Stage 3 - Validation','Stage 2 - Solution Identification',
+  'Stage 1 - Discovery','Stage 0 - Initiate - SQL',
+];
+
+const ACTUALS = {
+  202602: {fl:679128.28,up:0},
+  202603: {fl:687796.50,up:73201},
+  202604: {fl:688440.00,up:1351063.43},
+  202605: {fl:333880.29,up:0},
+  202606: {fl:306666.66,up:60871},
+};
+const PARTIAL_MONTHS = new Set([202606]);
+
+function fmtMoney(v) {
+  if (v==null||v==='') return '';
+  if (v===0) return '—';
+  return '$'+Number(v).toLocaleString();
+}
+function badge(stage) {
+  const [tc,bgc] = STAGE_COLORS[stage]||['#333','#fff'];
+  return `<span style="background:${bgc};color:${tc};padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;white-space:nowrap">${stage}</span>`;
+}
+function monthKey(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr+'T00:00:00');
+  if (isNaN(d)) return null;
+  return d.getFullYear()*100+(d.getMonth()+1);
+}
+function monthLabel(key) {
+  return MONTH_NAMES[(key%100)-1]+' '+Math.floor(key/100);
+}
+function isFY27(mk){return mk>=202602&&mk<=202701;}
+function isFY28(mk){return mk>=202702&&mk<=202801;}
+
+function buildPipeRows(data) {
+  return data.map((r,i)=>{
+    const arr=(r[10]||0)+(r[11]||0);
+    return `<tr class="${i%2===1?'alt':''}">
+      <td class="mono small">${r[0]}</td><td class="acct"><strong>${r[1]}</strong></td>
+      <td>${badge(r[2])}</td><td class="center small">${r[3]||''}</td>
+      <td class="center small">${r[4]||''}</td><td class="center small">${r[5]||''}</td>
+      <td class="center small">${r[6]||''}</td><td class="center small">${r[7]||''}</td>
+      <td class="small">${r[8]||''}</td><td class="center small">${r[9]||''}</td>
+      <td class="money">${fmtMoney(r[10])}</td><td class="money">${fmtMoney(r[11])}</td>
+      <td class="money total-arr">${arr?fmtMoney(arr):''}</td>
+      <td class="center small">${r[12]!=null?r[12]:''}</td>
+      <td class="center small">${r[13]!=null?r[13]:''}</td>
+      <td class="center small">${r[14]!=null?r[14]:''}</td>
+      <td class="center small qtr">${r[15]||''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function buildForecastRows(data) {
+  return data.filter(r=>r[15]===CURRENT_QTR).map((r,i)=>{
+    const arr=(r[10]||0)+(r[11]||0);
+    const pct=STAGE_WIN_PCT[r[2]]??25;
+    return `<tr class="${i%2===1?'alt':''}" data-arr="${arr}" data-type="${r[7]||''}" data-closedate="${r[6]||''}" data-stage="${r[2]||''}" data-rvp="${r[3]||''}">
+      <td class="center"><label class="toggle-wrap"><input type="checkbox" class="will-close" checked onchange="recalcQ2();recalcSummary()"><span class="toggle-slider"></span></label></td>
+      <td class="acct"><strong>${r[1]}</strong></td><td>${badge(r[2])}</td>
+      <td class="small">${r[8]||''}</td><td class="center small">${r[3]||''}</td>
+      <td class="center small">${r[7]||''}</td>
+      <td class="center"><input type="date" class="adj-date" value="${r[6]||''}" onchange="recalcQ2();recalcSummary()"></td>
+      <td class="money" data-arr="${arr}">${arr?fmtMoney(arr):'&mdash;'}</td>
+      <td class="center"><div class="pct-wrap"><input type="number" class="win-pct" value="${pct}" min="0" max="100" onchange="recalcQ2();recalcSummary()"><span class="pct-sign">%</span></div></td>
+      <td class="money weighted-cell"></td>
+    </tr>`;
+  }).join('');
+}
+
+function buildPipelineRows(data) {
+  return data.filter(r=>r[15]!==CURRENT_QTR).map((r,i)=>{
+    const arr=(r[10]||0)+(r[11]||0);
+    const pct=STAGE_WIN_PCT[r[2]]??10;
+    return `<tr class="${i%2===1?'alt':''}" data-type="${r[7]||''}" data-closedate="${r[6]||''}" data-stage="${r[2]||''}" data-rvp="${r[3]||''}">
+      <td class="acct"><strong>${r[1]}</strong></td><td>${badge(r[2])}</td>
+      <td class="small">${r[8]||''}</td><td class="center small">${r[3]||''}</td>
+      <td class="center small">${r[7]||''}</td><td class="center small qtr">${r[15]||''}</td>
+      <td class="money" data-arr="${arr}">${arr?fmtMoney(arr):'&mdash;'}</td>
+      <td class="center small stage-pct-display" data-stage="${r[2]||''}">${pct}%</td>
+      <td class="money pipe-weighted" data-arr="${arr}" data-stage="${r[2]||''}"></td>
+    </tr>`;
+  }).join('');
+}
+
+function buildStageControls() {
+  return STAGE_ORDER.map(s=>{
+    const [tc,bgc]=STAGE_COLORS[s]||['#333','#fff'];
+    const pct=STAGE_WIN_PCT[s]||10;
+    return `<tr><td><span style="background:${bgc};color:${tc};padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600">${s}</span></td>
+      <td class="center"><div class="pct-wrap"><input type="number" class="stage-global-pct" data-stage="${s}" value="${pct}" min="0" max="100" onchange="recalcPipeline();recalcSummary()"><span class="pct-sign">%</span></div></td></tr>`;
+  }).join('');
+}
+
+function buildSummaryCards(data) {
+  const counts={};
+  data.forEach(r=>{counts[r[2]]=(counts[r[2]]||0)+1;});
+  return STAGE_ORDER.map(s=>{
+    const cnt=counts[s]||0;
+    if(!cnt) return '';
+    const [tc]=STAGE_COLORS[s]||['#333'];
+    const short=s.includes('–')?s.split('–')[1].trim():s.split('-').slice(1).join('-').trim();
+    return `<div class="card" style="border-top:3px solid ${tc}"><div class="card-label">${short}</div><div class="card-count" style="color:${tc}">${cnt}</div></div>`;
+  }).join('');
+}
+
+async function loadData() {
+  const overlay=document.getElementById('loadingOverlay');
+  const errBanner=document.getElementById('errorBanner');
+  overlay.classList.add('show');
+  errBanner.style.display='none';
+  try {
+    const resp=await fetch('/api/pipeline');
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const json=await resp.json();
+    if(json.error) throw new Error(json.error);
+    const data=json.data;
+    const totalArr=data.reduce((s,r)=>s+(r[10]||0)+(r[11]||0),0);
+    const productArr=data.reduce((s,r)=>s+(r[10]||0),0);
+    document.getElementById('tableBody').innerHTML=buildPipeRows(data);
+    document.getElementById('forecastBody').innerHTML=buildForecastRows(data);
+    document.getElementById('pipelineBody').innerHTML=buildPipelineRows(data);
+    document.getElementById('stageControls').innerHTML=buildStageControls();
+    document.getElementById('statsOpps').textContent=data.length;
+    document.getElementById('statsArr').textContent='$'+(totalArr/1e6).toFixed(1)+'M';
+    document.getElementById('statsProduct').textContent='$'+(productArr/1e6).toFixed(1)+'M';
+    document.getElementById('summaryCards').innerHTML=buildSummaryCards(data);
+    document.getElementById('pf-count').textContent=data.filter(r=>r[15]!==CURRENT_QTR).length;
+    document.getElementById('headerSub').textContent=
+      `Amperity · Renewals & Pilots excluded · Source: Salesforce via Snowflake · Live · ${json.fetched_at}`;
+    filterTable(); recalcQ2(); recalcPipeline(); recalcSummary();
+  } catch(err) {
+    errBanner.textContent='Failed to load pipeline: '+err.message+'. Check Snowflake env vars.';
+    errBanner.style.display='block';
+  } finally {
+    overlay.classList.remove('show');
+  }
+}
+
+function showTab(name,btn) {
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+  if(name==='forecast')    recalcQ2();
+  if(name==='pipeline-fc') recalcPipeline();
+  if(name==='summary')     recalcSummary();
+}
+
+let sortCol=-1,sortAsc=true;
+function filterTable() {
+  const search=document.getElementById('search').value.toLowerCase();
+  const stage=document.getElementById('stageFilter').value;
+  const type=document.getElementById('typeFilter').value;
+  const qtr=document.getElementById('qtrFilter').value;
+  const rows=document.querySelectorAll('#tableBody tr');
+  let visible=0;
+  rows.forEach(row=>{
+    const cells=row.querySelectorAll('td');
+    const text=row.innerText.toLowerCase();
+    const show=(!search||text.includes(search))&&(!stage||cells[2].innerText.includes(stage))&&(!type||cells[7].innerText.trim()===type)&&(!qtr||cells[16].innerText.trim()===qtr);
+    row.classList.toggle('hidden',!show);
+    if(show) visible++;
+  });
+  document.getElementById('visibleCount').textContent=`${visible} of ${rows.length} opportunities`;
+}
+function sortTable(col) {
+  const tbody=document.getElementById('tableBody');
+  const rows=Array.from(tbody.querySelectorAll('tr'));
+  if(sortCol===col){sortAsc=!sortAsc;}else{sortCol=col;sortAsc=true;}
+  document.querySelectorAll('#pipeTable th').forEach((th,i)=>{
+    th.classList.remove('sorted-asc','sorted-desc');
+    if(i===col) th.classList.add(sortAsc?'sorted-asc':'sorted-desc');
+  });
+  rows.sort((a,b)=>{
+    const av=a.querySelectorAll('td')[col]?.innerText.trim()||'';
+    const bv=b.querySelectorAll('td')[col]?.innerText.trim()||'';
+    const an=parseFloat(av.replace(/[$,]/g,''));
+    const bn=parseFloat(bv.replace(/[$,]/g,''));
+    if(!isNaN(an)&&!isNaN(bn)) return sortAsc?an-bn:bn-an;
+    return sortAsc?av.localeCompare(bv):bv.localeCompare(av);
+  });
+  rows.forEach(r=>tbody.appendChild(r));
+}
+
+function recalcQ2() {
+  const rows=document.querySelectorAll('#forecastBody tr');
+  let committed=0,weighted=0,totalPipe=0,closeCount=0;
+  rows.forEach(row=>{
+    const arr=parseFloat(row.dataset.arr)||0;
+    const chk=row.querySelector('.will-close');
+    const pct=parseFloat(row.querySelector('.win-pct')?.value)||0;
+    const wCell=row.querySelector('.weighted-cell');
+    const wVal=arr*pct/100;
+    if(wCell) wCell.textContent=arr?'$'+Math.round(wVal).toLocaleString():'';
+    totalPipe+=arr;
+    if(chk?.checked){committed+=arr;weighted+=wVal;closeCount++;row.classList.remove('excluded');}
+    else row.classList.add('excluded');
+  });
+  document.getElementById('fc-count').textContent=closeCount;
+  document.getElementById('fc-committed').textContent='$'+(committed/1e6).toFixed(2)+'M';
+  document.getElementById('fc-weighted').textContent='$'+(weighted/1e6).toFixed(2)+'M';
+  document.getElementById('fc-total').textContent='$'+(totalPipe/1e6).toFixed(2)+'M';
+}
+
+function recalcPipeline() {
+  const stagePct={};
+  document.querySelectorAll('.stage-global-pct').forEach(inp=>{stagePct[inp.dataset.stage]=parseFloat(inp.value)||0;});
+  const rows=document.querySelectorAll('#pipelineBody tr');
+  let totalPipe=0,totalWeighted=0;
+  const qtrPipe={},qtrWeighted={},qtrCount={};
+  rows.forEach(row=>{
+    const arr=parseFloat(row.querySelector('[data-arr]')?.dataset.arr)||0;
+    const stage=row.querySelector('[data-stage]')?.dataset.stage||'';
+    const pct=stagePct[stage]??0;
+    const wVal=arr*pct/100;
+    const qtr=row.querySelector('.qtr')?.innerText.trim()||'';
+    const disp=row.querySelector('.stage-pct-display');
+    const wCell=row.querySelector('.pipe-weighted');
+    if(disp) disp.textContent=pct+'%';
+    if(wCell) wCell.textContent=arr?'$'+Math.round(wVal).toLocaleString():'';
+    totalPipe+=arr;totalWeighted+=wVal;
+    qtrPipe[qtr]=(qtrPipe[qtr]||0)+arr;
+    qtrWeighted[qtr]=(qtrWeighted[qtr]||0)+wVal;
+    qtrCount[qtr]=(qtrCount[qtr]||0)+1;
+  });
+  document.getElementById('pf-total').textContent='$'+(totalPipe/1e6).toFixed(2)+'M';
+  document.getElementById('pf-weighted').textContent='$'+(totalWeighted/1e6).toFixed(2)+'M';
+  const tbody=document.getElementById('pipeSummaryBody');
+  tbody.innerHTML='';
+  let sumPipe=0,sumW=0,sumCnt=0;
+  QTRS.filter(q=>q!==CURRENT_QTR).forEach(q=>{
+    if(!qtrPipe[q]&&!qtrCount[q]) return;
+    const p=qtrPipe[q]||0,w=qtrWeighted[q]||0,c=qtrCount[q]||0;
+    sumPipe+=p;sumW+=w;sumCnt+=c;
+    tbody.innerHTML+=`<tr><td>${q}</td><td>$${Math.round(p/1000).toLocaleString()}K</td><td style="text-align:center">${c}</td><td class="weighted-col">$${Math.round(w/1000).toLocaleString()}K</td></tr>`;
+  });
+  tbody.innerHTML+=`<tr class="total-row"><td>Total</td><td>$${(sumPipe/1e6).toFixed(2)}M</td><td style="text-align:center">${sumCnt}</td><td class="weighted-col">$${(sumW/1e6).toFixed(2)}M</td></tr>`;
+}
+
+function recalcSummary() {
+  const stagePct={};
+  document.querySelectorAll('.stage-global-pct').forEach(inp=>{stagePct[inp.dataset.stage]=parseFloat(inp.value)||0;});
+  const fcData={};
+  function addFc(mk,type,w){
+    if(!mk) return;
+    if(!fcData[mk]) fcData[mk]={fl:{w:0,c:0},up:{w:0,c:0}};
+    const b=(type==='Upsell'||type==='Renewal + Upsell')?'up':'fl';
+    fcData[mk][b].w+=w;fcData[mk][b].c+=1;
+  }
+  document.querySelectorAll('#forecastBody tr').forEach(row=>{
+    const chk=row.querySelector('.will-close');
+    if(!chk?.checked) return;
+    const arr=parseFloat(row.dataset.arr)||0;
+    const pct=parseFloat(row.querySelector('.win-pct')?.value)||0;
+    const dt=row.querySelector('.adj-date')?.value||row.dataset.closedate||'';
+    addFc(monthKey(dt),row.dataset.type||'',arr*pct/100);
+  });
+  document.querySelectorAll('#pipelineBody tr').forEach(row=>{
+    const arrEl=row.querySelector('[data-arr]');
+    const stEl=row.querySelector('[data-stage]');
+    if(!arrEl||!stEl) return;
+    const arr=parseFloat(arrEl.dataset.arr)||0;
+    const pct=stagePct[stEl.dataset.stage]||0;
+    addFc(monthKey(row.dataset.closedate||''),row.dataset.type||'',arr*pct/100);
+  });
+  const allKeys=new Set([...Object.keys(ACTUALS).map(Number),...Object.keys(fcData).map(Number)]);
+  const keys=Array.from(allKeys).sort();
+  if(!keys.length) return;
+  let maxRow=0;
+  keys.forEach(k=>{const act=ACTUALS[k]||{fl:0,up:0};const fc=fcData[k]||{fl:{w:0},up:{w:0}};const t=act.fl+act.up+fc.fl.w+fc.up.w;if(t>maxRow) maxRow=t;});
+  let fy27Act=0,fy27Fc=0,fy28Fc=0;
+  keys.forEach(k=>{
+    const act=ACTUALS[k]||{fl:0,up:0};const fc=fcData[k]||{fl:{w:0},up:{w:0}};
+    if(isFY27(k)){fy27Act+=act.fl+act.up;fy27Fc+=fc.fl.w+fc.up.w;}
+    if(isFY28(k)) fy28Fc+=fc.fl.w+fc.up.w;
+  });
+  document.getElementById('sum-fy27').textContent='$'+((fy27Act+fy27Fc)/1e6).toFixed(2)+'M';
+  document.getElementById('sum-fy27-actual').textContent='$'+(fy27Act/1e6).toFixed(2)+'M';
+  document.getElementById('sum-fy27-fc').textContent='$'+(fy27Fc/1e6).toFixed(2)+'M';
+  document.getElementById('sum-fy28').textContent='$'+(fy28Fc/1e6).toFixed(2)+'M';
+  const tbody=document.getElementById('summaryBody');
+  tbody.innerHTML='';
+  const qtrOf=k=>{
+    const yr=Math.floor(k/100),mo=k%100;
+    let fy,q;
+    if(mo===1){fy=yr;q=4;}else if(mo<=4){fy=yr+1;q=1;}else if(mo<=7){fy=yr+1;q=2;}else if(mo<=10){fy=yr+1;q=3;}else{fy=yr+1;q=4;}
+    return `FY${fy} Q${q}`;
+  };
+  let lastQtr='',altIdx=0,qFL_act=0,qUP_act=0,qFL_fc=0,qUP_fc=0;
+  const flushQtr=qL=>{
+    const qActT=qFL_act+qUP_act,qFcT=qFL_fc+qUP_fc;
+    tbody.innerHTML+=`<tr style="background:#eef2fa;font-size:11px">
+      <td style="padding-left:28px;color:#1F3864;font-weight:700">${qL} subtotal</td>
+      <td class="col-fl" style="font-weight:700">${qFL_act>0?'$'+Math.round(qFL_act/1000).toLocaleString()+'K':''}</td>
+      <td class="col-up" style="font-weight:700">${qUP_act>0?'$'+Math.round(qUP_act/1000).toLocaleString()+'K':''}</td>
+      <td class="col-fl" style="font-weight:700">${qFL_fc>0?'$'+Math.round(qFL_fc/1000).toLocaleString()+'K':''}</td>
+      <td class="col-up" style="font-weight:700">${qUP_fc>0?'$'+Math.round(qUP_fc/1000).toLocaleString()+'K':''}</td>
+      <td></td>
+      <td class="col-total" style="font-weight:700">$${Math.round((qActT+qFcT)/1000).toLocaleString()}K</td>
+    </tr>`;
+    qFL_act=0;qUP_act=0;qFL_fc=0;qUP_fc=0;
+  };
+  keys.forEach(k=>{
+    const qL=qtrOf(k);
+    if(qL!==lastQtr){if(lastQtr) flushQtr(lastQtr);tbody.innerHTML+=`<tr class="qtr-row"><td colspan="7">${qL}</td></tr>`;lastQtr=qL;}
+    const act=ACTUALS[k]||{fl:0,up:0};const fc=fcData[k]||{fl:{w:0,c:0},up:{w:0,c:0}};
+    const isActual=!!ACTUALS[k]&&!PARTIAL_MONTHS.has(k);const isPartial=PARTIAL_MONTHS.has(k);
+    const rowTotal=act.fl+act.up+fc.fl.w+fc.up.w;
+    const barW=maxRow>0?Math.round(rowTotal/maxRow*100):0;
+    const actW=maxRow>0?Math.round((act.fl+act.up)/maxRow*100):0;
+    qFL_act+=act.fl;qUP_act+=act.up;qFL_fc+=fc.fl.w;qUP_fc+=fc.up.w;
+    const statusBadge=isActual?'<span style="font-size:9px;background:#d4f7dc;color:#1a7f37;padding:1px 5px;border-radius:3px;font-weight:700;vertical-align:middle">ACTUAL</span>':isPartial?'<span style="font-size:9px;background:#fff3cd;color:#7d5a00;padding:1px 5px;border-radius:3px;font-weight:700;vertical-align:middle">PARTIAL</span>':'';
+    const fmt=v=>v>0?'$'+Math.round(v/1000).toLocaleString()+'K':'';
+    const rowBg=isActual?'background:#f4fbf5':isPartial?'background:#fffbf0':'';
+    tbody.innerHTML+=`<tr class="${altIdx++%2===1&&!isActual&&!isPartial?'alt':''}" style="${rowBg}">
+      <td>${monthLabel(k)} ${statusBadge}</td>
+      <td class="col-fl">${fmt(act.fl)}</td><td class="col-up">${fmt(act.up)}</td>
+      <td class="col-fl">${fmt(fc.fl.w)}</td><td class="col-up">${fmt(fc.up.w)}</td>
+      <td style="text-align:center;color:#6b7280;font-size:11px">${(fc.fl.c+fc.up.c)||''}</td>
+      <td class="col-total bar-cell">$${Math.round(rowTotal/1000).toLocaleString()}K
+        <div class="bar-bg"><div class="bar-fill" style="width:${barW}%;background:linear-gradient(90deg,#1a7f37 ${actW}%,#1a4971 ${actW}% ${actW+Math.round(fc.fl.w/maxRow*100)}%,#7d5a00 ${actW+Math.round(fc.fl.w/maxRow*100)}%)"></div></div>
+      </td>
+    </tr>`;
+  });
+  if(lastQtr) flushQtr(lastQtr);
+  const grandActT=keys.reduce((s,k)=>{const a=ACTUALS[k]||{fl:0,up:0};return s+a.fl+a.up;},0);
+  const grandFcFL=keys.reduce((s,k)=>s+(fcData[k]?.fl.w||0),0);
+  const grandFcUP=keys.reduce((s,k)=>s+(fcData[k]?.up.w||0),0);
+  tbody.innerHTML+=`<tr class="total-row">
+    <td>Grand total</td>
+    <td class="col-fl">$${(keys.reduce((s,k)=>s+(ACTUALS[k]?.fl||0),0)/1e6).toFixed(2)}M</td>
+    <td class="col-up">$${(keys.reduce((s,k)=>s+(ACTUALS[k]?.up||0),0)/1e6).toFixed(2)}M</td>
+    <td class="col-fl">$${(grandFcFL/1e6).toFixed(2)}M</td>
+    <td class="col-up">$${(grandFcUP/1e6).toFixed(2)}M</td>
+    <td></td>
+    <td class="col-total">$${((grandActT+grandFcFL+grandFcUP)/1e6).toFixed(2)}M</td>
+  </tr>`;
+}
+
+function filterForecast() {
+  const stage=document.getElementById('fcStageFilter').value;
+  const rvp=document.getElementById('fcRvpFilter').value;
+  const rows=document.querySelectorAll('#forecastBody tr');
+  let vis=0;
+  rows.forEach(row=>{
+    const show=(!stage||row.dataset.stage===stage)&&(!rvp||row.dataset.rvp===rvp);
+    row.classList.toggle('hidden',!show);
+    if(show) vis++;
+  });
+  document.getElementById('fcVisibleCount').textContent=vis+' of '+rows.length+' deals';
+}
+function filterPipelineFc() {
+  const stage=document.getElementById('pfStageFilter').value;
+  const rvp=document.getElementById('pfRvpFilter').value;
+  const rows=document.querySelectorAll('#pipelineBody tr');
+  let vis=0;
+  rows.forEach(row=>{
+    const show=(!stage||row.dataset.stage===stage)&&(!rvp||row.dataset.rvp===rvp);
+    row.classList.toggle('hidden',!show);
+    if(show) vis++;
+  });
+  document.getElementById('pfVisibleCount').textContent=vis+' of '+rows.length+' deals';
+}
+
+function exportSnapshot() {
+  document.querySelectorAll('input[type=number],input[type=date]').forEach(inp=>{inp.setAttribute('value',inp.value);});
+  document.querySelectorAll('input.will-close').forEach(cb=>{if(cb.checked) cb.setAttribute('checked','');else cb.removeAttribute('checked');});
+  const html='<!DOCTYPE html>'+document.documentElement.outerHTML;
+  const blob=new Blob([html],{type:'text/html'});
+  const a=document.createElement('a');
+  const date=new Date().toISOString().slice(0,10);
+  a.href=URL.createObjectURL(blob);
+  a.download=`SQO_Pipeline_snapshot_${date}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+loadData();
+</script>
+</body>
+</html>
