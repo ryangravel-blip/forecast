@@ -72,7 +72,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const body = await sfRes.json();
 
   const cols: string[] = (body.resultSetMetaData?.rowType ?? []).map((c: { name: string }) => c.name);
-  const rows = (body.data ?? []).map((row: string[]) => {
+  let allRows: string[][] = body.data ?? [];
+
+  // Snowflake's SQL API v2 splits large result sets into multiple partitions.
+  // The initial response only includes partition 0 — fetch the rest and
+  // concatenate, or rows past the first partition silently go missing.
+  const partitionCount: number = body.resultSetMetaData?.partitionInfo?.length ?? 1;
+  const handle: string | undefined = body.statementHandle;
+  if (partitionCount > 1 && handle) {
+    for (let p = 1; p < partitionCount; p++) {
+      const partUrl = `https://${account.toLowerCase()}.snowflakecomputing.com/api/v2/statements/${handle}?partition=${p}`;
+      const partRes = await fetch(partUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'X-Snowflake-Authorization-Token-Type': 'KEYPAIR_JWT',
+        },
+      });
+      if (!partRes.ok) {
+        const errText = await partRes.text();
+        return res.status(partRes.status).json({ error: `Partition ${p} fetch failed: ${errText.slice(0, 500)}` });
+      }
+      const partBody = await partRes.json();
+      allRows = allRows.concat(partBody.data ?? []);
+    }
+  }
+
+  const rows = allRows.map((row: string[]) => {
     const obj: Record<string, unknown> = {};
     cols.forEach((col, i) => { obj[col] = row[i]; });
     return obj;
