@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Marketing Vendor Spend — Live</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <style>
 :root { color-scheme: light; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -21,12 +20,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .period-badge { background: #2d3748; border-radius: 6px; padding: 5px 12px; font-size: 12px; color: #e2e8f0; white-space: nowrap; }
 
 .content { padding: 20px 24px; }
-
-.charts-row { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
-.chart-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 16px; flex: 1; min-width: 340px; }
-.chart-card.wide { flex: 2; min-width: 500px; }
-.chart-title { font-size: 13px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e8ecf0; }
-.chart-subtitle { font-size: 11px; color: #6b7280; margin-top: 2px; }
 
 .table-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); overflow: hidden; margin-bottom: 20px; }
 .table-title { padding: 12px 16px 10px; font-size: 14px; font-weight: 600; color: #1a1a2e; border-bottom: 1px solid #e8ecf0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -60,13 +53,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 
 <div class="content">
 
-<div class="charts-row">
-  <div class="chart-card wide">
-    <div class="chart-title">Marketing Non-Headcount Spend — Actuals vs Forecast <span class="chart-subtitle">$K</span></div>
-    <canvas id="mktVendChart" height="200"></canvas>
-  </div>
-</div>
-
 <div class="table-card">
   <div class="table-title">
     Marketing — Non-Headcount Expense by Vendor, FY27
@@ -88,10 +74,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 </div><!-- /content -->
 
 <script>
-// ─── BRAND & CONSTANTS ────────────────────────────────
-const BRAND = { black:'#0C0C0C', lime:'#E9FF5F', teal:'#80C7D1', paleTeal:'#CAEFEF' };
-const C_ACT = BRAND.teal, C_BUD = BRAND.paleTeal;
-
+// ─── CONSTANTS ────────────────────────────────────────
 // FY27 = Feb-26 through Jan-27. Actuals close through May-26; Jun-26 onward is forecast (Live Model).
 const FY27_MONTHS = ['2026-02-28','2026-03-31','2026-04-30','2026-05-31','2026-06-30','2026-07-31','2026-08-31','2026-09-30','2026-10-31','2026-11-30','2026-12-31','2027-01-31'];
 const FY27_LBL    = ['Feb-26','Mar-26','Apr-26','May-26','Jun-26','Jul-26','Aug-26','Sep-26','Oct-26','Nov-26','Dec-26','Jan-27'];
@@ -246,18 +229,6 @@ function buildMarketingVendor(vp) {
   FY27_QTRS.forEach(q => { body += `<td class="divider-left">${K(vp.grandQ(q.months) / 1e3)}</td>`; });
   body += `<td class="divider-left">${K(vp.grandTotal() / 1e3)}</td></tr>`;
   document.getElementById('mktVendBody').innerHTML = body;
-
-  const actD = FY27_MONTHS.map(dt => dt <= FY27_ACTUAL_THRU ? vp.grandMonthly(dt) / 1e3 : null);
-  const fcD  = FY27_MONTHS.map(dt => dt > FY27_ACTUAL_THRU ? vp.grandMonthly(dt) / 1e3 : null);
-  new Chart(document.getElementById('mktVendChart'), {
-    type: 'bar',
-    data: { labels: FY27_LBL, datasets: [
-      { label: 'Actuals', data: actD, backgroundColor: C_ACT, borderRadius: 3 },
-      { label: 'Forecast', data: fcD, backgroundColor: C_BUD, borderRadius: 3 },
-    ] },
-    options: { responsive: true, plugins: { legend: { position: 'top' } },
-      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f1f5f9' }, ticks: { callback: v => N(v) } } } },
-  });
 }
 
 // ─── MAIN ────────────────────────────────────────────
