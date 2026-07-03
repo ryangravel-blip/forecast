@@ -1,1 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marketing Vendor Spend — Live</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root { color-scheme: light; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; background: #f0f2f5; color: #1a1a2e; }
 
+#loadingOverlay { position: fixed; inset: 0; background: rgba(26,26,46,0.88); display: flex; align-items: center; justify-content: center; z-index: 9999; flex-direction: column; gap: 16px; }
+.spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #80C7D1; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#loadingMsg { color: #e2e8f0; font-size: 13px; }
+
+.page-header { background: #1a1a2e; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+.page-header h1 { font-size: 17px; font-weight: 600; letter-spacing: .3px; }
+.page-header .subtitle { font-size: 12px; color: #9ba3af; margin-top: 2px; }
+.period-badge { background: #2d3748; border-radius: 6px; padding: 5px 12px; font-size: 12px; color: #e2e8f0; white-space: nowrap; }
+
+.content { padding: 20px 24px; }
+
+.charts-row { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.chart-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 16px; flex: 1; min-width: 340px; }
+.chart-card.wide { flex: 2; min-width: 500px; }
+.chart-title { font-size: 13px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e8ecf0; }
+.chart-subtitle { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+.table-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); overflow: hidden; margin-bottom: 20px; }
+.table-title { padding: 12px 16px 10px; font-size: 14px; font-weight: 600; color: #1a1a2e; border-bottom: 1px solid #e8ecf0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bud-badge { font-size: 10px; font-weight: 500; background: #e8f0fe; color: #1e3a8a; border-radius: 4px; padding: 2px 7px; }
+
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th, .data-table td { padding: 6px 10px; text-align: right; white-space: nowrap; font-size: 12px; }
+.data-table td.label-col, .data-table th.label-col { text-align: left; font-weight: 400; color: #374151; padding-left: 12px; }
+.data-table thead tr.col-header th { background: #f8fafc; color: #6b7280; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; border-bottom: 2px solid #e5e7eb; }
+.data-table tbody tr:nth-child(even) td { filter: brightness(.97); }
+.data-table tbody tr:hover td { background: #ebf4ff !important; filter: none; }
+.row-total td { background: #d6dde6 !important; font-weight: 700; border-top: 2px solid #94a3b8; }
+.divider-left { border-left: 2px solid #d1d5db !important; }
+.footnote { font-size: 11px; color: #9ba3af; padding: 10px 16px 14px; }
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingMsg">Connecting to Snowflake…</div>
+</div>
+
+<div class="page-header">
+  <div>
+    <h1>Marketing Vendor Spend</h1>
+    <div class="subtitle">FY27 &nbsp;·&nbsp; Non-Headcount Costs by Vendor</div>
+  </div>
+  <div class="period-badge">Actuals Feb&ndash;May-26 &nbsp;|&nbsp; Forecast Jun-26&ndash;Jan-27 (Live Model)</div>
+</div>
+
+<div class="content">
+
+<div class="charts-row">
+  <div class="chart-card wide">
+    <div class="chart-title">Marketing Non-Headcount Spend — Actuals vs Forecast <span class="chart-subtitle">$K</span></div>
+    <canvas id="mktVendChart" height="200"></canvas>
+  </div>
+</div>
+
+<div class="table-card">
+  <div class="table-title">
+    Marketing — Non-Headcount Expense by Vendor, FY27
+    <span class="bud-badge">Forecast version: Live Model</span>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data-table" id="mktVendTable">
+      <thead id="mktVendHead"></thead>
+      <tbody id="mktVendBody"><tr><td class="label-col" colspan="18" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="footnote">
+    Actuals: <code>load.finance_sandbox.mrp_financials</code>, C_PL_INCLUDE = TRUE &middot;
+    Forecast: <code>load.finance_sandbox.mrp_vendor_forecast</code>, VERSION_NAME = 'Live Model' &middot;
+    Scope: C_PARENT_DEPT = 'Marketing', C_PL_CLASS = 'Non-Headcount Costs' (excludes Headcount &amp; Overhead)
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<script>
+// ─── BRAND & CONSTANTS ────────────────────────────────
+const BRAND = { black:'#0C0C0C', lime:'#E9FF5F', teal:'#80C7D1', paleTeal:'#CAEFEF' };
+const C_ACT = BRAND.teal, C_BUD = BRAND.paleTeal;
+
+// FY27 = Feb-26 through Jan-27. Actuals close through May-26; Jun-26 onward is forecast (Live Model).
+const FY27_MONTHS = ['2026-02-28','2026-03-31','2026-04-30','2026-05-31','2026-06-30','2026-07-31','2026-08-31','2026-09-30','2026-10-31','2026-11-30','2026-12-31','2027-01-31'];
+const FY27_LBL    = ['Feb-26','Mar-26','Apr-26','May-26','Jun-26','Jul-26','Aug-26','Sep-26','Oct-26','Nov-26','Dec-26','Jan-27'];
+const FY27_ACTUAL_THRU = '2026-05-31';
+const FY27_QTRS = [
+  { label: 'Q1 FY27', months: ['2026-02-28','2026-03-31','2026-04-30'] },
+  { label: 'Q2 FY27', months: ['2026-05-31','2026-06-30','2026-07-31'] },
+  { label: 'Q3 FY27', months: ['2026-08-31','2026-09-30','2026-10-31'] },
+  { label: 'Q4 FY27', months: ['2026-11-30','2026-12-31','2027-01-31'] },
+];
+
+// ─── FORMAT HELPERS ──────────────────────────────────
+const N = (v,d=0) => { if(v==null||v==='')return '—'; const n=+v; if(isNaN(n))return '—'; return n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); };
+const K = (v,d=0) => { if(v==null||v==='')return '—'; const n=+v; if(isNaN(n))return '—'; return N(Math.round(n),d); };
+
+// ─── SQL EXECUTION (Cowork mode, falls back to Vercel /api/sql) ──
+const USE_COWORK = () => !!window.cowork?.callMcpTool;
+
+async function execSQL(sql) {
+  if (!USE_COWORK()) {
+    const res = await fetch('/api/sql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql })
+    });
+    if (!res.ok) throw new Error('SQL error: ' + (await res.text()).slice(0, 200));
+    return res.json();
+  }
+  const raw = await window.cowork.callMcpTool('mcp__2c211ab0-a702-4355-9d71-4acf3f0ad8d5__sql_exec_tool', { sql });
+  let jsonStr;
+  if (typeof raw === 'string') jsonStr = raw;
+  else if (Array.isArray(raw)) { const b = raw.find(c=>c.type==='text'); jsonStr = b?b.text:JSON.stringify(raw); }
+  else if (raw?.content) { const b = Array.isArray(raw.content)?raw.content.find(c=>c.type==='text'):null; jsonStr = b?b.text:JSON.stringify(raw.content); }
+  else jsonStr = JSON.stringify(raw);
+  let p;
+  try { p = JSON.parse(jsonStr); }
+  catch(e) { throw new Error('SQL error: ' + jsonStr.slice(0, 200)); }
+  if (p.error || p.message?.startsWith?.('MCP')) throw new Error(p.error || p.message);
+  const rs = p.result_set || p;
+  const cols = rs.resultSetMetaData.rowType.map(c=>c.name);
+  return rs.data.map(row => { const o={}; cols.forEach((c,i)=>{ o[c]=row[i]; }); return o; });
+}
+
+async function waitForCowork(timeout=5000) {
+  const start=Date.now();
+  while(!window.cowork?.callMcpTool) {
+    if(Date.now()-start>timeout) return; // standalone mode — will use /api/sql
+    await new Promise(r=>setTimeout(r,150));
+  }
+}
+
+// ─── QUERIES ─────────────────────────────────────────
+// C_PL_CLASS = 'Non-Headcount Costs' is the same field the main MRP dashboard uses
+// to split Headcount / Non-Headcount / Overhead, so this matches the P&L definition.
+const Q = {
+  marketingVendorActuals: `
+    SELECT MONTH_END_DT,
+           COALESCE(NULLIF(TRIM(CUSTOMER_VENDOR_NAME),''),'') as VENDOR,
+           COALESCE(ACCOUNT_NAME,'') as ACCOUNT_NAME,
+           SUM(AMT) as AMT
+    FROM load.finance_sandbox.mrp_financials
+    WHERE C_PARENT_DEPT = 'Marketing' AND C_PL_INCLUDE = TRUE
+      AND C_PL_CLASS = 'Non-Headcount Costs'
+      AND MONTH_END_DT BETWEEN '2026-02-01' AND '2026-05-31'
+    GROUP BY MONTH_END_DT, VENDOR, ACCOUNT_NAME
+    ORDER BY MONTH_END_DT`,
+
+  marketingVendorForecast: `
+    SELECT TIME_MONTH_END,
+           COALESCE(NULLIF(NULLIF(TRIM(VENDOR),''),'Vendor'),'') as VENDOR,
+           COALESCE(ACCOUNT_NAME,'') as ACCOUNT_NAME,
+           SUM(VALUE) as VALUE
+    FROM load.finance_sandbox.mrp_vendor_forecast
+    WHERE C_PARENT_DEPT = 'Marketing' AND VERSION_NAME = 'Live Model'
+      AND C_PL_CLASS = 'Non-Headcount Costs'
+      AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+    GROUP BY TIME_MONTH_END, VENDOR, ACCOUNT_NAME
+    ORDER BY TIME_MONTH_END`,
+};
+
+// ─── DATE HELPER ─────────────────────────────────────
+// Snowflake REST API v2 returns DATE columns as integer day offsets from 1970-01-01.
+function parseDate(v) {
+  if (!v && v !== 0) return '';
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const n = parseInt(s, 10);
+  if (isNaN(n)) return s;
+  return new Date(n * 86400000).toISOString().slice(0, 10);
+}
+
+// Vendor is used as-is when present. When blank (actuals with no vendor tag, or the
+// forecast's literal 'Vendor' placeholder — already nulled out in SQL), fall back to
+// the last segment of the GL account path so allocated/uncoded spend still shows up
+// as a readable line instead of disappearing.
+function deriveVendorLabel(vendor, accountName) {
+  if (vendor) return vendor;
+  const parts = String(accountName || '').split(':').map(s => s.trim()).filter(Boolean);
+  const last = parts[parts.length - 1] || accountName || 'Unclassified';
+  return `${last} (unassigned)`;
+}
+
+function preProcessVendorExp(actRows, fcRows) {
+  const byVendorMonth = {};
+  const add = (dt, vendorRaw, accountName, amt) => {
+    if (!amt) return;
+    const vendor = deriveVendorLabel(vendorRaw, accountName);
+    if (!byVendorMonth[vendor]) byVendorMonth[vendor] = {};
+    byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + amt;
+  };
+  for (const r of actRows) add(parseDate(r.MONTH_END_DT), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.AMT || 0));
+  for (const r of fcRows) add(parseDate(r.TIME_MONTH_END), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.VALUE || 0));
+
+  const monthly = (v, dt) => (byVendorMonth[v] && byVendorMonth[v][dt]) || 0;
+  const vendorTotal = (v) => Object.values(byVendorMonth[v] || {}).reduce((a, b) => a + b, 0);
+  const qTotal = (v, mths) => mths.reduce((s, dt) => s + monthly(v, dt), 0);
+  const vendors = Object.keys(byVendorMonth)
+    .filter(v => Math.abs(vendorTotal(v)) >= 1)
+    .sort((a, b) => vendorTotal(b) - vendorTotal(a));
+  const grandMonthly = (dt) => vendors.reduce((s, v) => s + monthly(v, dt), 0);
+  const grandQ = (mths) => vendors.reduce((s, v) => s + qTotal(v, mths), 0);
+  const grandTotal = () => vendors.reduce((s, v) => s + vendorTotal(v), 0);
+  return { vendors, monthly, vendorTotal, qTotal, grandMonthly, grandQ, grandTotal };
+}
+
+// ─── BUILD ───────────────────────────────────────────
+function buildMarketingVendor(vp) {
+  const stickyTh = 'position:sticky;left:0;background:#f8fafc;z-index:2';
+  const stickyTd = 'position:sticky;left:0;background:#fff;white-space:nowrap;z-index:1';
+
+  let head = `<tr class="col-header"><th class="label-col" style="min-width:220px;${stickyTh}">Vendor ($K)</th>`;
+  FY27_MONTHS.forEach((dt, i) => {
+    const isAct = dt <= FY27_ACTUAL_THRU;
+    head += `<th style="${isAct ? '' : 'background:#fbffe8;color:#8a9a1f'}">${FY27_LBL[i]}</th>`;
+  });
+  FY27_QTRS.forEach(q => head += `<th class="divider-left" style="background:#eef2f7">${q.label}</th>`);
+  head += `<th class="divider-left" style="background:#e5e0f5">FY27 Total</th></tr>`;
+  head += `<tr style="font-size:9px;color:#9ba3af"><th class="label-col" style="${stickyTh}"></th>` +
+    FY27_MONTHS.map(dt => `<th style="font-weight:400">${dt <= FY27_ACTUAL_THRU ? 'Actual' : 'Forecast'}</th>`).join('') +
+    FY27_QTRS.map(() => '<th></th>').join('') + '<th></th></tr>';
+  document.getElementById('mktVendHead').innerHTML = head;
+
+  let body = '';
+  for (const v of vp.vendors) {
+    body += `<tr><td class="label-col" style="${stickyTd}">${v}</td>`;
+    FY27_MONTHS.forEach(dt => { body += `<td>${K(vp.monthly(v, dt) / 1e3)}</td>`; });
+    FY27_QTRS.forEach(q => { body += `<td class="divider-left" style="color:#6b7280">${K(vp.qTotal(v, q.months) / 1e3)}</td>`; });
+    body += `<td class="divider-left" style="font-weight:600">${K(vp.vendorTotal(v) / 1e3)}</td></tr>`;
+  }
+  body += `<tr class="row-total"><td class="label-col" style="${stickyTd};background:#d6dde6">Total Non-HC Marketing Vendor Spend</td>`;
+  FY27_MONTHS.forEach(dt => { body += `<td>${K(vp.grandMonthly(dt) / 1e3)}</td>`; });
+  FY27_QTRS.forEach(q => { body += `<td class="divider-left">${K(vp.grandQ(q.months) / 1e3)}</td>`; });
+  body += `<td class="divider-left">${K(vp.grandTotal() / 1e3)}</td></tr>`;
+  document.getElementById('mktVendBody').innerHTML = body;
+
+  const actD = FY27_MONTHS.map(dt => dt <= FY27_ACTUAL_THRU ? vp.grandMonthly(dt) / 1e3 : null);
+  const fcD  = FY27_MONTHS.map(dt => dt > FY27_ACTUAL_THRU ? vp.grandMonthly(dt) / 1e3 : null);
+  new Chart(document.getElementById('mktVendChart'), {
+    type: 'bar',
+    data: { labels: FY27_LBL, datasets: [
+      { label: 'Actuals', data: actD, backgroundColor: C_ACT, borderRadius: 3 },
+      { label: 'Forecast', data: fcD, backgroundColor: C_BUD, borderRadius: 3 },
+    ] },
+    options: { responsive: true, plugins: { legend: { position: 'top' } },
+      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f1f5f9' }, ticks: { callback: v => N(v) } } } },
+  });
+}
+
+// ─── MAIN ────────────────────────────────────────────
+async function loadAll() {
+  const msg = document.getElementById('loadingMsg');
+  try {
+    msg.textContent = 'Connecting to Snowflake…';
+    await waitForCowork();
+    msg.textContent = 'Fetching vendor actuals & forecast…';
+    const [actRows, fcRows] = await Promise.all([
+      execSQL(Q.marketingVendorActuals),
+      execSQL(Q.marketingVendorForecast),
+    ]);
+    msg.textContent = 'Building dashboard…';
+    buildMarketingVendor(preProcessVendorExp(actRows, fcRows));
+    document.getElementById('loadingOverlay').style.display = 'none';
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+    console.error(e);
+  }
+}
+loadAll();
+</script>
+</body>
+</html>
