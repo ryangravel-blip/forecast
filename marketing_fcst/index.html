@@ -56,7 +56,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     <h1>Marketing Vendor Spend</h1>
     <div class="subtitle">FY27 &nbsp;·&nbsp; Non-Headcount Costs by Vendor</div>
   </div>
-  <div class="period-badge">Actuals Feb&ndash;May-26 &nbsp;|&nbsp; Forecast Jun-26&ndash;Jan-27 (Live Model)</div>
+  <div class="period-badge">Actuals Feb&ndash;May-26 &nbsp;|&nbsp; Forecast Jun-26&ndash;Jan-27 (Adaptive export)</div>
 </div>
 
 <div class="content">
@@ -64,7 +64,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 <div class="table-card">
   <div class="table-title">
     Marketing — Non-Headcount Expense by Vendor, FY27
-    <span class="bud-badge">Forecast version: Live Model</span>
+    <span class="bud-badge">Forecast source: Adaptive export, snapshot 2026-07-06</span>
   </div>
   <div style="overflow-x:auto">
     <table class="data-table" id="mktVendTable">
@@ -74,11 +74,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   </div>
   <div class="footnote">
     Actuals: <code>load.finance_sandbox.mrp_financials</code>, C_PL_INCLUDE = TRUE &middot;
-    Forecast: <code>load.finance_sandbox.mrp_vendor_forecast</code>, VERSION_NAME = 'Live Model' &middot;
-    Prepaid gap-fill: <code>load.finance_sandbox.mrp_prepaid_spend</code> (committed contracts not yet in the forecast) &middot;
-    Scope: C_PARENT_DEPT = 'Marketing', C_PL_CLASS = 'Non-Headcount Costs' (excludes Headcount &amp; Overhead)<br>
+    Forecast (Jun-26&ndash;Jan-27): Adaptive vendor-level export, snapshot 2026-07-06 &mdash; replaces <code>mrp_vendor_forecast</code> for non-headcount Marketing spend, which has a confirmed data gap &middot;
+    Scope: C_PARENT_DEPT = 'Marketing', Non-Headcount Costs (excludes Headcount &amp; Overhead)<br>
     <span class="committed-badge" style="margin-left:0">Committed</span> = vendor has a live prepaid/amortization schedule in <code>mrp_prepaid_spend</code> &mdash; typically contracted, not easily reduced or cancelled &middot;
-    Headcount total &amp; discretionary mix pull C_PL_CLASS = 'Headcount Costs' from the same actuals/forecast sources<br>
+    Headcount total &amp; discretionary mix still pull C_PL_CLASS = 'Headcount Costs' from <code>mrp_vendor_forecast</code> (Live Model) &mdash; only the non-headcount vendor forecast was replaced<br>
     Category tags sourced from <code>marketing_budget.xlsx</code> (Vendor_level_expenses); vendors not in that file are tagged by GL account context &mdash; flag any that look off and I'll adjust the mapping
   </div>
 </div>
@@ -155,24 +154,12 @@ const Q = {
     GROUP BY MONTH_END_DT, VENDOR, ACCOUNT_NAME
     ORDER BY MONTH_END_DT`,
 
-  marketingVendorForecast: `
-    SELECT TIME_MONTH_END,
-           COALESCE(NULLIF(NULLIF(TRIM(VENDOR),''),'Vendor'),'') as VENDOR,
-           COALESCE(ACCOUNT_NAME,'') as ACCOUNT_NAME,
-           SUM(VALUE) as VALUE
-    FROM load.finance_sandbox.mrp_vendor_forecast
-    WHERE C_PARENT_DEPT = 'Marketing' AND VERSION_NAME = 'Live Model'
-      AND C_PL_CLASS = 'Non-Headcount Costs'
-      AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
-    GROUP BY TIME_MONTH_END, VENDOR, ACCOUNT_NAME
-    ORDER BY TIME_MONTH_END`,
+  // Non-headcount vendor forecast (Jun-26–Jan-27) no longer comes from here — see
+  // MARKETING_FORECAST_FILE below. Query kept only because headcount forecast (a
+  // separate C_PL_CLASS) still legitimately pulls from Live Model.
 
-  // Prepaid/committed contracts (conference sponsorships, co-marketing deals, etc.).
-  // The Live Model forecast only carries recurring SaaS run-rate vendors — one-time
-  // committed spend like RainFocus lives only in this amortization schedule until
-  // FP&A manually adds it to the forecast. M05 seeds the running balance so schedules
-  // already underway before June don't get double-counted; M06-M13 are what's left
-  // to hit the P&L in the forecast window.
+  // Prepaid schedule is queried only to flag "Committed" vendors below — it no longer
+  // contributes dollars to the forecast total (see MARKETING_FORECAST_FILE).
   marketingPrepaid: `
     SELECT VENDOR_NAME, TOTALAMOUNT,
       "'2026-05-31'" as M05,
@@ -224,44 +211,6 @@ function deriveVendorLabel(vendor, accountName) {
   return `${last} (unassigned)`;
 }
 
-// Prepaid vendors already confirmed present in mrp_vendor_forecast's Live Model
-// (reconciled manually against mrp_prepaid_spend on 2026-07-03 — their forecast
-// numbers match or exceed the prepaid schedule, so adding the schedule on top
-// would double-count). Everything else in the prepaid table that the forecast
-// shows as $0/absent is a genuine gap and gets added in.
-const PREPAID_ALREADY_IN_FORECAST = new Set([
-  'amazon web services - asana', 'on24, inc.', 'credly inc', 'adobe systems, inc.', 'tribyl, inc',
-]);
-
-const PREPAID_FORECAST_DTS = ['2026-06-30','2026-07-31','2026-08-31','2026-09-30','2026-10-31','2026-11-30','2026-12-31','2027-01-31'];
-const PREPAID_FORECAST_COLS = ['M06','M07','M08','M09','M10','M11','M12','M13'];
-
-// mrp_prepaid_spend's month columns hold the *remaining unamortized balance* as of
-// that month-end (validated against On24's actuals: the balance drop each month
-// matches On24's booked SaaS expense exactly). So the expense recognized in a given
-// month = prior balance - current balance. M05 (May) seeds that running balance;
-// TOTALAMOUNT is the fallback for schedules that hadn't started amortizing by May.
-function mergePrepaidGap(byVendorMonth, prepaidRows) {
-  for (const r of prepaidRows) {
-    const vendor = String(r.VENDOR_NAME || '').trim();
-    if (!vendor || PREPAID_ALREADY_IN_FORECAST.has(vendor.toLowerCase())) continue;
-    let runningBalance = +(r.TOTALAMOUNT ?? 0);
-    if (r.M05 !== '' && r.M05 != null) runningBalance = +r.M05;
-    PREPAID_FORECAST_COLS.forEach((c, i) => {
-      const v = r[c];
-      if (v !== '' && v != null) {
-        const expense = runningBalance - (+v);
-        if (expense) {
-          const dt = PREPAID_FORECAST_DTS[i];
-          if (!byVendorMonth[vendor]) byVendorMonth[vendor] = {};
-          byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + expense;
-        }
-        runningBalance = +v;
-      }
-    });
-  }
-}
-
 // Prepaid VENDOR_NAME strings frequently don't match the display name the vendor
 // shows up under in actuals/forecast (e.g. prepaid "Credly Inc" vs. displayed
 // "Credly"; "Gartner, Inc." vs. "Gartner Inc."). Confirmed against live actuals +
@@ -311,7 +260,7 @@ const CATEGORY_GROUPS = {
   'Content/Brand': [
     'Allytics', 'CDP Institute LLC', 'Customer Data Platform Institute LLC', 'George Hatton', 'Hookline', 'Monotype',
     'Monotype Imaging Inc', 'Raab Associates', 'Red Antler', 'Stephen States', 'Trustactics, LLC', 'Cody Newman',
-    'Phocuswright, Inc.', 'Bow Jones',
+    'Phocuswright, Inc.', 'Phocuswright', 'Bow Jones',
   ],
   'Field Marketing': [
     'Arktic Fox', 'Attentive Mobile Inc.', 'Canlis', 'Convene', 'Elise Edmonds Keefe',
@@ -322,6 +271,7 @@ const CATEGORY_GROUPS = {
     'AMAZON.COM (AMZN MKTP)', 'Adweek, LLC', 'Amanda Doan', 'Emily Norviel', 'Emma Caneva', 'Julia Wookey',
     'Brett Newcome', 'Moo.com', 'Sendoso', 'Sparks Exhibits and Environments', 'Nomo Soho', 'Lally Events, Inc.',
     'Pyramid Displays', 'Shoptalk Commerce LLC', '42 Analytics Educational Inc', 'Sender inc', 'IQPC',
+    'Lally Events', 'Rainfocus',
   ],
   'Digital Demand & Paid Media': [
     'Google Adwords', 'GoTo', 'Industry Dive', 'Influ2', 'LinkedIn', 'Product Marketing Spend VC',
@@ -399,34 +349,67 @@ function preProcessHeadcount(actRows, fcRows) {
 // This is a stopgap sourced from a static file snapshot, not a live query — it will
 // drift as Adaptive's own numbers change. Remove it once the Snowflake sync that feeds
 // mrp_vendor_forecast is fixed at the source (flag to data engineering).
-const ADAPTIVE_PATCH_SNAPSHOT_DATE = '2026-07-06';
-const ADAPTIVE_PATCH = {
-  'Communique PR': { '2026-06-30': 27500, '2026-07-31': 27500, '2026-08-31': 27500, '2026-09-30': 27500, '2026-10-31': 27500, '2026-11-30': 27500, '2026-12-31': 27500, '2027-01-31': 27500 },
-  'Gartner Inc.': { '2026-07-31': 22571, '2026-11-30': 22571, '2027-01-31': 22571 },
-  'George Hatton': { '2026-06-30': 14000, '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
-  'Digitalzone': { '2026-06-30': 14000, '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
-  'Forrester Research, Inc.': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
-  'Cody Newman': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
-  'Netline': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
-  'Intentsify': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
-  'Influ2': { '2026-10-31': 5000, '2026-11-30': 5000, '2026-12-31': 5000, '2027-01-31': 5000 },
-  'IQPC': { '2026-07-31': 28356 },
-  'IDC Research Inc': { '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
-  'DemandCurveMarketing': { '2026-06-30': 3500, '2026-07-31': 3500, '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
-  'Emily Norviel': { '2026-06-30': 3500, '2026-07-31': 3500, '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
-  'Sparks Exhibits and Environments': { '2026-06-30': 3500, '2026-07-31': 3500, '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
-  'Webless': { '2026-09-30': 1410.21, '2026-10-31': 2002, '2026-11-30': 2002, '2026-12-31': 2002, '2027-01-31': 2002 },
-  'Sendoso': { '2026-06-30': 1927, '2026-07-31': 1927, '2026-08-31': 1927, '2026-09-30': 1927, '2026-10-31': 1927, '2026-11-30': 1927, '2026-12-31': 1927, '2027-01-31': 1927 },
+// ─── NON-HEADCOUNT VENDOR FORECAST (Jun-26–Jan-27) ──────────────────────
+// Replaces mrp_vendor_forecast as the forecast source entirely, per Ryan on
+// 2026-07-06: the Live Model vendor forecast in Snowflake has a confirmed sync gap
+// (real budgeted dollars zeroed out or missing vendor rows — see the earlier
+// reconciliation), so it can no longer be trusted for non-headcount Marketing spend.
+// This is the full vendor-level detail from marketing.xlsx (Adaptive export,
+// snapshot 2026-07-06), covering every non-headcount vendor with nonzero spend in
+// the forecast window. It supersedes the old mrp_prepaid_spend gap-fill and the
+// prior Adaptive-patch overlay — both are removed so nothing double-counts.
+// Headcount forecast is unaffected and still pulls from Live Model (see Q.marketingHeadcountForecast).
+const MARKETING_FORECAST_SNAPSHOT_DATE = '2026-07-06';
+const MARKETING_FORECAST_FILE = {
+  'AWS - G2': { '2026-06-30': 2121, '2026-07-31': 2086, '2026-08-31': 2121, '2026-09-30': 2121, '2026-10-31': 2121, '2026-11-30': 2121, '2026-12-31': 2121, '2027-01-31': 2121 },
+  'AZK Media (AUD)': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
+  'Adobe Creative Cloud': { '2026-06-30': 1502, '2026-07-31': 1502, '2026-08-31': 1502, '2026-09-30': 1502, '2026-10-31': 1502, '2026-11-30': 1502, '2026-12-31': 1502, '2027-01-31': 1502 },
+  'Adobe Systems, Inc.': { '2026-06-30': 7705, '2026-07-31': 7705, '2026-08-31': 7705, '2026-09-30': 7705, '2026-10-31': 8068, '2026-11-30': 8068, '2026-12-31': 8068, '2027-01-31': 8068 },
+  'Amazon Web Services - Asana': { '2026-06-30': 1559, '2026-07-31': 1559, '2026-08-31': 1559, '2026-09-30': 1559, '2026-10-31': 1559, '2026-11-30': 1559, '2026-12-31': 1559, '2027-01-31': 1559 },
   'Arktic Fox': { '2026-06-30': 1804, '2026-07-31': 1804, '2026-08-31': 1804, '2026-09-30': 1804, '2026-10-31': 1804, '2026-11-30': 1804, '2026-12-31': 1804, '2027-01-31': 1804 },
-  'Wingify Software Private Limited': { '2026-09-30': 1721, '2026-10-31': 1721, '2026-11-30': 1721, '2026-12-31': 1721, '2027-01-31': 1721 },
-  'Trustactics, LLC': { '2026-10-31': 833, '2026-11-30': 833, '2026-12-31': 833, '2027-01-31': 833 },
+  'Cody Newman': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
+  'Communique PR': { '2026-06-30': 25000, '2026-07-31': 25000, '2026-08-31': 25000, '2026-09-30': 25000, '2026-10-31': 25000, '2026-11-30': 25000, '2026-12-31': 25000, '2027-01-31': 25000 },
+  'Credly': { '2026-06-30': 230, '2026-07-31': 230, '2026-08-31': 230, '2026-09-30': 230, '2026-10-31': 230 },
+  'Digitalzone': { '2026-06-30': 14000, '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
+  'Football Northwest LLC dba Seattle Seahawks': { '2026-06-30': 3500, '2026-07-31': 3500, '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
+  'Forrester Research, Inc.': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
+  'Fourth Day Ltd': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
+  'Gartner Inc.': { '2026-06-30': 52071, '2026-07-31': 22571, '2026-08-31': 22571, '2026-09-30': 22571, '2026-10-31': 22571, '2026-11-30': 22571, '2026-12-31': 9583, '2027-01-31': 22571 },
+  'George Hatton': { '2026-06-30': 14000, '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
+  'Google Adwords': { '2026-06-30': 40000, '2026-07-31': 40000, '2026-08-31': 40000, '2026-09-30': 40000, '2026-10-31': 40000, '2026-11-30': 40000, '2026-12-31': 40000, '2027-01-31': 40000 },
+  'IDC Research Inc': { '2026-06-30': 3676, '2026-07-31': 3676 },
+  'IQPC': { '2026-07-31': 28356 },
+  'Industry Dive': { '2026-06-30': 14648 },
+  'Influ2': { '2026-06-30': 8652, '2026-07-31': 8940, '2026-08-31': 8940, '2026-09-30': 5191 },
+  'Lally Events': { '2026-06-30': 3348 },
+  'LinkedIn': { '2026-06-30': 25923, '2026-07-31': 35000, '2026-08-31': 35000, '2026-09-30': 35000, '2026-10-31': 35000, '2026-11-30': 35000, '2026-12-31': 35000, '2027-01-31': 35000 },
+  'NRF National Retail Federation': { '2027-01-31': 65900 },
+  'Netline': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
+  'On24, Inc.': { '2026-06-30': 3130, '2026-07-31': 3130, '2026-08-31': 3130, '2026-09-30': 3130, '2026-10-31': 3130, '2026-11-30': 3130, '2026-12-31': 3287, '2027-01-31': 3287 },
+  'One Time FM Spend - Field Marketing': { '2026-06-30': 8394 },
+  'Open AI': { '2026-06-30': 450, '2026-07-31': 450, '2026-08-31': 450, '2026-09-30': 450, '2026-10-31': 450, '2026-11-30': 450, '2026-12-31': 450, '2027-01-31': 450 },
+  'Peerbound': { '2026-06-30': 2207 },
+  'Phocuswright': { '2026-09-30': 8291, '2026-10-31': 8291, '2026-11-30': 8291, '2026-12-31': 8291 },
+  'Point of Loyalty': { '2026-06-30': 1630, '2026-07-31': 1630, '2026-08-31': 1630, '2026-09-30': 1630, '2026-10-31': 1630, '2026-11-30': 1630, '2026-12-31': 1630, '2027-01-31': 1630 },
+  'Popl': { '2026-06-30': 966, '2026-07-31': 966, '2026-08-31': 966, '2026-09-30': 966, '2026-10-31': 966, '2026-11-30': 966, '2026-12-31': 966, '2027-01-31': 966 },
+  'QR.io': { '2026-06-30': 35, '2026-07-31': 35, '2026-08-31': 35, '2026-09-30': 35, '2026-10-31': 35, '2026-11-30': 35, '2026-12-31': 35, '2027-01-31': 35 },
+  'Rainfocus': { '2026-06-30': 325000 },
   'SEMrush': { '2026-06-30': 253, '2026-07-31': 253, '2026-08-31': 253, '2026-09-30': 253, '2026-10-31': 253, '2026-11-30': 253, '2026-12-31': 253, '2027-01-31': 253 },
   'SENTRY': { '2026-06-30': 98, '2026-07-31': 98, '2026-08-31': 98, '2026-09-30': 98, '2026-10-31': 98, '2026-11-30': 98, '2026-12-31': 98, '2027-01-31': 98 },
-  'QR.io': { '2026-06-30': 35, '2026-07-31': 35, '2026-08-31': 35, '2026-09-30': 35, '2026-10-31': 35, '2026-11-30': 35, '2026-12-31': 35, '2027-01-31': 35 },
-  'One Time Marketing Spend VC': { '2026-06-30': 26, '2026-07-31': 29, '2026-08-31': 31, '2026-09-30': 7, '2026-10-31': 8, '2026-11-30': 8, '2026-12-31': 9, '2027-01-31': 10 },
+  'Sendoso': { '2026-06-30': 1927, '2026-07-31': 1927, '2026-08-31': 1927, '2026-09-30': 1927, '2026-10-31': 1927, '2026-11-30': 1927, '2026-12-31': 1927, '2027-01-31': 1927 },
+  'SpeedCurve': { '2026-06-30': 114, '2026-07-31': 114, '2026-08-31': 114, '2026-09-30': 114, '2026-10-31': 114, '2026-11-30': 114, '2026-12-31': 114, '2027-01-31': 114 },
+  'Sprout Social': { '2026-06-30': 500, '2026-07-31': 500, '2026-08-31': 500, '2026-09-30': 500, '2026-10-31': 500, '2026-11-30': 500, '2026-12-31': 500, '2027-01-31': 500 },
+  'Survey Monkey': { '2026-06-30': 1655, '2026-07-31': 1655, '2026-08-31': 1655, '2026-09-30': 1655 },
+  'The Seattle Mariners': { '2026-06-30': 8750, '2026-07-31': 8750, '2026-08-31': 8750, '2026-09-30': 8750, '2026-10-31': 8750, '2026-11-30': 8750, '2026-12-31': 8750, '2027-01-31': 8750 },
+  'Tribyl': { '2026-06-30': 1102, '2026-07-31': 1102 },
+  'Trustactics, LLC': { '2026-06-30': 833, '2026-07-31': 833, '2026-08-31': 833, '2026-09-30': 833, '2026-10-31': 833, '2026-11-30': 833, '2026-12-31': 833, '2027-01-31': 833 },
+  'Vendelux': { '2026-06-30': 4151, '2026-07-31': 4151, '2026-08-31': 4151, '2026-09-30': 4151, '2026-10-31': 4151, '2026-11-30': 4151, '2026-12-31': 4151, '2027-01-31': 4151 },
+  'Webless': { '2026-06-30': 2002, '2026-07-31': 2002, '2026-08-31': 2002, '2026-09-30': 2002 },
+  'Wingify Software Private Limited': { '2026-06-30': 1638, '2026-07-31': 1638, '2026-08-31': 1289, '2026-09-30': 1721, '2026-10-31': 1721, '2026-11-30': 1721, '2026-12-31': 1721, '2027-01-31': 1721 },
 };
-function mergeAdaptivePatch(byVendorMonth) {
-  for (const [vendor, months] of Object.entries(ADAPTIVE_PATCH)) {
+
+function mergeForecastFile(byVendorMonth) {
+  for (const [vendor, months] of Object.entries(MARKETING_FORECAST_FILE)) {
     for (const [dt, amt] of Object.entries(months)) {
       if (!byVendorMonth[vendor]) byVendorMonth[vendor] = {};
       byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + amt;
@@ -434,29 +417,7 @@ function mergeAdaptivePatch(byVendorMonth) {
   }
 }
 
-// Some vendors end up split across two rows because the prepaid schedule and the
-// Adaptive patch spell their name slightly differently than actuals/forecast do
-// (e.g. prepaid's "Gartner, Inc." vs. actuals' "Gartner Inc."). Fold each known
-// variant into one canonical row so the same real vendor shows up once.
-const VENDOR_MERGE_ALIASES = {
-  'gartner, inc.': 'Gartner Inc.',
-  'influ2 inc': 'Influ2',
-  'webless, inc.': 'Webless',
-};
-
-function mergeVendorAliases(byVendorMonth) {
-  for (const [aliasLower, canonical] of Object.entries(VENDOR_MERGE_ALIASES)) {
-    const aliasKey = Object.keys(byVendorMonth).find(k => k.toLowerCase() === aliasLower);
-    if (!aliasKey || aliasKey === canonical) continue;
-    if (!byVendorMonth[canonical]) byVendorMonth[canonical] = {};
-    for (const [dt, amt] of Object.entries(byVendorMonth[aliasKey])) {
-      byVendorMonth[canonical][dt] = (byVendorMonth[canonical][dt] || 0) + amt;
-    }
-    delete byVendorMonth[aliasKey];
-  }
-}
-
-function preProcessVendorExp(actRows, fcRows, prepaidRows) {
+function preProcessVendorExp(actRows) {
   const byVendorMonth = {};
   const add = (dt, vendorRaw, accountName, amt) => {
     if (!amt) return;
@@ -465,10 +426,7 @@ function preProcessVendorExp(actRows, fcRows, prepaidRows) {
     byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + amt;
   };
   for (const r of actRows) add(parseDate(r.MONTH_END_DT), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.AMT || 0));
-  for (const r of fcRows) add(parseDate(r.TIME_MONTH_END), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.VALUE || 0));
-  mergePrepaidGap(byVendorMonth, prepaidRows || []);
-  mergeAdaptivePatch(byVendorMonth);
-  mergeVendorAliases(byVendorMonth);
+  mergeForecastFile(byVendorMonth);
 
   const monthly = (v, dt) => (byVendorMonth[v] && byVendorMonth[v][dt]) || 0;
   const vendorTotal = (v) => Object.values(byVendorMonth[v] || {}).reduce((a, b) => a + b, 0);
@@ -579,16 +537,15 @@ async function loadAll() {
   try {
     msg.textContent = 'Connecting to Snowflake…';
     await waitForCowork();
-    msg.textContent = 'Fetching vendor actuals, forecast, prepaid & headcount…';
-    const [actRows, fcRows, prepaidRows, hcActRows, hcFcRows] = await Promise.all([
+    msg.textContent = 'Fetching vendor actuals, prepaid & headcount…';
+    const [actRows, prepaidRows, hcActRows, hcFcRows] = await Promise.all([
       execSQL(Q.marketingVendorActuals),
-      execSQL(Q.marketingVendorForecast),
       execSQL(Q.marketingPrepaid),
       execSQL(Q.marketingHeadcountActuals),
       execSQL(Q.marketingHeadcountForecast),
     ]);
     msg.textContent = 'Building dashboard…';
-    const vp = preProcessVendorExp(actRows, fcRows, prepaidRows);
+    const vp = preProcessVendorExp(actRows);
     const committed = committedVendorSet(prepaidRows);
     const hc = preProcessHeadcount(hcActRows, hcFcRows);
     buildMarketingVendor(vp, committed, hc);
