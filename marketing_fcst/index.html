@@ -39,6 +39,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .committed-row td { background: #fff8e6 !important; }
 .committed-badge { font-size: 9px; font-weight: 600; background: #fde68a; color: #7c4a03; border-radius: 3px; padding: 1px 6px; margin-left: 7px; white-space: nowrap; vertical-align: middle; }
 .cat-badge { font-size: 9px; font-weight: 600; border-radius: 3px; padding: 1px 6px; margin-left: 7px; white-space: nowrap; vertical-align: middle; }
+.cat-header td { font-size: 11px; padding: 8px 12px; border-top: 2px solid #e5e7eb; }
+.cat-subtotal td { background: #eef2f7 !important; font-weight: 600; border-top: 1px solid #d1d5db; }
 .footnote { font-size: 11px; color: #9ba3af; padding: 10px 16px 14px; }
 </style>
 </head>
@@ -424,15 +426,49 @@ function buildMarketingVendor(vp, committed, hc) {
     FY27_QTRS.map(() => '<th></th>').join('') + '<th></th></tr>';
   document.getElementById('mktVendHead').innerHTML = head;
 
-  let body = '';
-  for (const v of vp.vendors) {
+  const allCols = 1 + FY27_MONTHS.length + FY27_QTRS.length + 1;
+
+  const renderVendorRow = (v) => {
     const isCommitted = committed.has(v.toLowerCase());
-    const badges = categoryBadge(categoryFor(v)) + (isCommitted ? '<span class="committed-badge">Committed</span>' : '');
-    body += `<tr${isCommitted ? ' class="committed-row"' : ''}><td class="label-col" style="${stickyTd}${isCommitted ? ';background:#fff8e6' : ''}">${v}${badges}</td>`;
-    FY27_MONTHS.forEach(dt => { body += `<td>${K(vp.monthly(v, dt) / 1e3)}</td>`; });
-    FY27_QTRS.forEach(q => { body += `<td class="divider-left" style="color:#6b7280">${K(vp.qTotal(v, q.months) / 1e3)}</td>`; });
-    body += `<td class="divider-left" style="font-weight:600">${K(vp.vendorTotal(v) / 1e3)}</td></tr>`;
+    const badge = isCommitted ? '<span class="committed-badge">Committed</span>' : '';
+    let row = `<tr${isCommitted ? ' class="committed-row"' : ''}><td class="label-col" style="${stickyTd}${isCommitted ? ';background:#fff8e6' : ''};padding-left:24px">${v}${badge}</td>`;
+    FY27_MONTHS.forEach(dt => { row += `<td>${K(vp.monthly(v, dt) / 1e3)}</td>`; });
+    FY27_QTRS.forEach(q => { row += `<td class="divider-left" style="color:#6b7280">${K(vp.qTotal(v, q.months) / 1e3)}</td>`; });
+    row += `<td class="divider-left" style="font-weight:600">${K(vp.vendorTotal(v) / 1e3)}</td></tr>`;
+    return row;
+  };
+
+  // The accounting "plug" line (if present) always renders last, below every
+  // category group — it's a balancing/placeholder entry, not a real vendor to sort
+  // alphabetically within a category.
+  const isPlug = (v) => v.trim().toLowerCase() === '[plug}';
+  const plugVendors = vp.vendors.filter(isPlug);
+  const normalVendors = vp.vendors.filter(v => !isPlug(v));
+
+  // Group by category, sort vendors alphabetically within each group, and order
+  // the groups themselves by total FY27 spend (largest category first).
+  const byCat = {};
+  for (const v of normalVendors) (byCat[categoryFor(v)] = byCat[categoryFor(v)] || []).push(v);
+  const catOrder = Object.keys(byCat).sort((a, b) =>
+    byCat[b].reduce((s, v) => s + vp.vendorTotal(v), 0) - byCat[a].reduce((s, v) => s + vp.vendorTotal(v), 0));
+  for (const cat of catOrder) byCat[cat].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  let body = '';
+  for (const cat of catOrder) {
+    const [bg, fg] = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Uncategorized'];
+    body += `<tr class="cat-header"><td class="label-col" style="${stickyTd};background:${bg};color:${fg}" colspan="${allCols}">${cat}</td></tr>`;
+    for (const v of byCat[cat]) body += renderVendorRow(v);
+
+    const vendors = byCat[cat];
+    const monthlyCat = (dt) => vendors.reduce((s, v) => s + vp.monthly(v, dt), 0);
+    const qCat = (mths) => vendors.reduce((s, v) => s + vp.qTotal(v, mths), 0);
+    const totalCat = vendors.reduce((s, v) => s + vp.vendorTotal(v), 0);
+    body += `<tr class="cat-subtotal"><td class="label-col" style="${stickyTd};background:#eef2f7">${cat} Subtotal</td>`;
+    FY27_MONTHS.forEach(dt => { body += `<td>${K(monthlyCat(dt) / 1e3)}</td>`; });
+    FY27_QTRS.forEach(q => { body += `<td class="divider-left">${K(qCat(q.months) / 1e3)}</td>`; });
+    body += `<td class="divider-left">${K(totalCat / 1e3)}</td></tr>`;
   }
+  for (const v of plugVendors) body += renderVendorRow(v);
 
   body += `<tr class="row-total"><td class="label-col" style="${stickyTd};background:#d6dde6">Total Non-HC Marketing Vendor Spend</td>`;
   FY27_MONTHS.forEach(dt => { body += `<td>${K(vp.grandMonthly(dt) / 1e3)}</td>`; });
