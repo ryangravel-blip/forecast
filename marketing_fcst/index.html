@@ -38,7 +38,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .divider-left { border-left: 2px solid #d1d5db !important; }
 .committed-row td { background: #fff8e6 !important; }
 .committed-badge { font-size: 9px; font-weight: 600; background: #fde68a; color: #7c4a03; border-radius: 3px; padding: 1px 6px; margin-left: 7px; white-space: nowrap; vertical-align: middle; }
-.patch-badge { font-size: 9px; font-weight: 600; background: #fecaca; color: #991b1b; border-radius: 3px; padding: 1px 6px; margin-left: 7px; white-space: nowrap; vertical-align: middle; }
 .cat-badge { font-size: 9px; font-weight: 600; border-radius: 3px; padding: 1px 6px; margin-left: 7px; white-space: nowrap; vertical-align: middle; }
 .cat-header td { font-size: 11px; padding: 8px 12px; border-top: 2px solid #e5e7eb; }
 .cat-subtotal td { background: #eef2f7 !important; font-weight: 600; border-top: 1px solid #d1d5db; }
@@ -80,8 +79,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     Scope: C_PARENT_DEPT = 'Marketing', C_PL_CLASS = 'Non-Headcount Costs' (excludes Headcount &amp; Overhead)<br>
     <span class="committed-badge" style="margin-left:0">Committed</span> = vendor has a live prepaid/amortization schedule in <code>mrp_prepaid_spend</code> &mdash; typically contracted, not easily reduced or cancelled &middot;
     Headcount total &amp; discretionary mix pull C_PL_CLASS = 'Headcount Costs' from the same actuals/forecast sources<br>
-    Category tags sourced from <code>marketing_budget.xlsx</code> (Vendor_level_expenses); vendors not in that file are tagged by GL account context &mdash; flag any that look off and I'll adjust the mapping<br>
-    <span class="patch-badge" style="margin-left:0">Adaptive Patch</span> = manually patched from a static Adaptive "Vendor Expenses" export (snapshot 2026-07-06) because <code>mrp_vendor_forecast</code> is missing real budgeted dollars for this vendor &mdash; a confirmed Snowflake sync gap (~$1.98M of $3.07M in FY27 Marketing vendor forecast, Jun&ndash;Jan), not a dashboard issue. This patch will go stale as Adaptive changes &mdash; remove once the sync is fixed at the source.
+    Category tags sourced from <code>marketing_budget.xlsx</code> (Vendor_level_expenses); vendors not in that file are tagged by GL account context &mdash; flag any that look off and I'll adjust the mapping
   </div>
 </div>
 
@@ -309,7 +307,7 @@ const CATEGORY_GROUPS = {
   ],
   'PMM': ['AWS - G2', 'Amazon Web Services - G2', 'Klue', 'Tribyl', 'Tribyl, Inc'],
   'PR': ['AZK Media', 'AZK Media (AUD)', 'Business Wire', 'Communique PR', 'Fourth Day Ltd', 'Newsweek', 'Digiday Media LLC', 'theCUBE'],
-  'AR': ['Forrester Research, Inc.', 'Gartner Inc.', 'Gartner, Inc.', 'IDC Research Inc', 'Omdia'],
+  'AR': ['Forrester Research, Inc.', 'Gartner Inc.', 'IDC Research Inc', 'Omdia'],
   'Content/Brand': [
     'Allytics', 'CDP Institute LLC', 'Customer Data Platform Institute LLC', 'George Hatton', 'Hookline', 'Monotype',
     'Monotype Imaging Inc', 'Raab Associates', 'Red Antler', 'Stephen States', 'Trustactics, LLC', 'Cody Newman',
@@ -326,11 +324,11 @@ const CATEGORY_GROUPS = {
     'Pyramid Displays', 'Shoptalk Commerce LLC', '42 Analytics Educational Inc', 'Sender inc', 'IQPC',
   ],
   'Digital Demand & Paid Media': [
-    'Google Adwords', 'GoTo', 'Industry Dive', 'Influ2', 'Influ2 Inc', 'LinkedIn', 'Product Marketing Spend VC',
+    'Google Adwords', 'GoTo', 'Industry Dive', 'Influ2', 'LinkedIn', 'Product Marketing Spend VC',
     'On24, Inc.', 'Survey Monkey', 'SurveyMonkey Inc', 'DemandCurveMarketing', 'DemandWorks Media', 'Digitalzone',
     'Netline', 'Intentsify', 'Microsoft',
   ],
-  'Website': ['Contentful Cms', 'IMGIX', 'SEMrush', 'SENTRY', 'SpeedCurve', 'Vercel', 'Webless', 'Webless, Inc.', 'Wingify Software Private Limited', 'Matomo'],
+  'Website': ['Contentful Cms', 'IMGIX', 'SEMrush', 'SENTRY', 'SpeedCurve', 'Vercel', 'Webless', 'Wingify Software Private Limited', 'Matomo'],
   'Partner Marketing': ['Credly', 'Credly Inc', 'Databricks', 'Slalom, LLC', 'Slalom, Inc.', 'RainFocus, LLC', 'Snowflake Inc.'],
 };
 
@@ -427,14 +425,34 @@ const ADAPTIVE_PATCH = {
   'QR.io': { '2026-06-30': 35, '2026-07-31': 35, '2026-08-31': 35, '2026-09-30': 35, '2026-10-31': 35, '2026-11-30': 35, '2026-12-31': 35, '2027-01-31': 35 },
   'One Time Marketing Spend VC': { '2026-06-30': 26, '2026-07-31': 29, '2026-08-31': 31, '2026-09-30': 7, '2026-10-31': 8, '2026-11-30': 8, '2026-12-31': 9, '2027-01-31': 10 },
 };
-const PATCHED_VENDORS = new Set(Object.keys(ADAPTIVE_PATCH).map(v => v.toLowerCase()));
-
 function mergeAdaptivePatch(byVendorMonth) {
   for (const [vendor, months] of Object.entries(ADAPTIVE_PATCH)) {
     for (const [dt, amt] of Object.entries(months)) {
       if (!byVendorMonth[vendor]) byVendorMonth[vendor] = {};
       byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + amt;
     }
+  }
+}
+
+// Some vendors end up split across two rows because the prepaid schedule and the
+// Adaptive patch spell their name slightly differently than actuals/forecast do
+// (e.g. prepaid's "Gartner, Inc." vs. actuals' "Gartner Inc."). Fold each known
+// variant into one canonical row so the same real vendor shows up once.
+const VENDOR_MERGE_ALIASES = {
+  'gartner, inc.': 'Gartner Inc.',
+  'influ2 inc': 'Influ2',
+  'webless, inc.': 'Webless',
+};
+
+function mergeVendorAliases(byVendorMonth) {
+  for (const [aliasLower, canonical] of Object.entries(VENDOR_MERGE_ALIASES)) {
+    const aliasKey = Object.keys(byVendorMonth).find(k => k.toLowerCase() === aliasLower);
+    if (!aliasKey || aliasKey === canonical) continue;
+    if (!byVendorMonth[canonical]) byVendorMonth[canonical] = {};
+    for (const [dt, amt] of Object.entries(byVendorMonth[aliasKey])) {
+      byVendorMonth[canonical][dt] = (byVendorMonth[canonical][dt] || 0) + amt;
+    }
+    delete byVendorMonth[aliasKey];
   }
 }
 
@@ -450,6 +468,7 @@ function preProcessVendorExp(actRows, fcRows, prepaidRows) {
   for (const r of fcRows) add(parseDate(r.TIME_MONTH_END), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.VALUE || 0));
   mergePrepaidGap(byVendorMonth, prepaidRows || []);
   mergeAdaptivePatch(byVendorMonth);
+  mergeVendorAliases(byVendorMonth);
 
   const monthly = (v, dt) => (byVendorMonth[v] && byVendorMonth[v][dt]) || 0;
   const vendorTotal = (v) => Object.values(byVendorMonth[v] || {}).reduce((a, b) => a + b, 0);
@@ -484,9 +503,7 @@ function buildMarketingVendor(vp, committed, hc) {
 
   const renderVendorRow = (v) => {
     const isCommitted = committed.has(v.toLowerCase());
-    const isPatched = PATCHED_VENDORS.has(v.toLowerCase());
-    const badges = (isCommitted ? '<span class="committed-badge">Committed</span>' : '') +
-      (isPatched ? '<span class="patch-badge">Adaptive Patch</span>' : '');
+    const badges = isCommitted ? '<span class="committed-badge">Committed</span>' : '';
     let row = `<tr${isCommitted ? ' class="committed-row"' : ''}><td class="label-col" style="${stickyTd}${isCommitted ? ';background:#fff8e6' : ''};padding-left:24px">${v}${badges}</td>`;
     FY27_MONTHS.forEach(dt => { row += `<td>${K(vp.monthly(v, dt) / 1e3)}</td>`; });
     FY27_QTRS.forEach(q => { row += `<td class="divider-left" style="color:#6b7280">${K(vp.qTotal(v, q.months) / 1e3)}</td>`; });
