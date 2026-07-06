@@ -80,7 +80,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     <span class="committed-badge" style="margin-left:0">Committed</span> = vendor has a live prepaid/amortization schedule in <code>mrp_prepaid_spend</code> &mdash; typically contracted, not easily reduced or cancelled &middot;
     Headcount total &amp; discretionary mix still pull C_PL_CLASS = 'Headcount Costs' from <code>mrp_vendor_forecast</code> (Live Model) &mdash; only the non-headcount vendor forecast was replaced<br>
     Category tags sourced from <code>marketing_budget.xlsx</code> (Vendor_level_expenses); vendors not in that file are tagged by GL account context &mdash; flag any that look off and I'll adjust the mapping<br>
-    <span class="contract-note" style="margin-left:0">Exp M/D/YYYY</span> = contract expiration date, from the Comment/Notes column of the Adaptive export
+    <span class="contract-note" style="margin-left:0">Exp M/D/YYYY</span> = contract expiration date, from the Comment/Notes column of the Adaptive export<br>
+    Snowflake Inc., Nomo Soho, Sender inc, Meltwater &amp; Pyramid Displays: added directly from <code>mrp_prepaid_spend</code> &mdash; real committed schedules the Adaptive export doesn't carry at all ($216K total, flagged 2026-07-06)
   </div>
 </div>
 
@@ -419,6 +420,30 @@ function mergeForecastFile(byVendorMonth) {
   }
 }
 
+// Ryan flagged Snowflake's $160K prepaid expense missing from the dashboard on
+// 2026-07-06. Checked every vendor in mrp_prepaid_spend against marketing.xlsx —
+// most prepaid-schedule vendors ARE already reflected in the Adaptive export (often
+// with a bigger, more current number), but these 5 have a real, live amortization
+// schedule that the Adaptive export doesn't carry at all. Added directly from
+// mrp_prepaid_spend so they don't silently disappear again. If a future Adaptive
+// refresh picks these up, remove the matching entry here to avoid double-counting.
+const PREPAID_GAP_ADDITIONS = {
+  'Snowflake Inc.': { '2026-06-30': 160297.50 },
+  'Nomo Soho': { '2026-06-30': 23643.49 },
+  'Sender inc': { '2026-06-30': 1927.11, '2026-07-31': 1927.11, '2026-08-31': 1927.11, '2026-09-30': 1927.11, '2026-10-31': 1927.11, '2026-11-30': 1927.11, '2026-12-31': 1927.11, '2027-01-31': 1927.11 },
+  'Meltwater': { '2026-06-30': 1465.54, '2026-07-31': 1940.54, '2026-08-31': 1940.54, '2026-09-30': 1940.54, '2026-10-31': 1940.54, '2026-11-30': 1940.54, '2026-12-31': 1940.54, '2027-01-31': 1940.54 },
+  'Pyramid Displays': { '2026-07-31': 1862.94 },
+};
+
+function mergePrepaidGapAdditions(byVendorMonth) {
+  for (const [vendor, months] of Object.entries(PREPAID_GAP_ADDITIONS)) {
+    for (const [dt, amt] of Object.entries(months)) {
+      if (!byVendorMonth[vendor]) byVendorMonth[vendor] = {};
+      byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + amt;
+    }
+  }
+}
+
 // "Comment/Notes" column from the same marketing.xlsx export — mostly contract
 // expiration dates FP&A tracks per vendor. Shown as a small note next to the vendor
 // name so renewal timing is visible at a glance, not just in the source file.
@@ -455,6 +480,7 @@ function preProcessVendorExp(actRows) {
   };
   for (const r of actRows) add(parseDate(r.MONTH_END_DT), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.AMT || 0));
   mergeForecastFile(byVendorMonth);
+  mergePrepaidGapAdditions(byVendorMonth);
 
   const monthly = (v, dt) => (byVendorMonth[v] && byVendorMonth[v][dt]) || 0;
   const vendorTotal = (v) => Object.values(byVendorMonth[v] || {}).reduce((a, b) => a + b, 0);
