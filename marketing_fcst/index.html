@@ -38,6 +38,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .divider-left { border-left: 2px solid #d1d5db !important; }
 .committed-row td { background: #fff8e6 !important; }
 .committed-badge { font-size: 9px; font-weight: 600; background: #fde68a; color: #7c4a03; border-radius: 3px; padding: 1px 6px; margin-left: 7px; white-space: nowrap; vertical-align: middle; }
+.contract-note { font-size: 9.5px; font-weight: 400; color: #9ba3af; margin-left: 7px; white-space: nowrap; vertical-align: middle; font-style: italic; }
 .cat-badge { font-size: 9px; font-weight: 600; border-radius: 3px; padding: 1px 6px; margin-left: 7px; white-space: nowrap; vertical-align: middle; }
 .cat-header td { font-size: 11px; padding: 8px 12px; border-top: 2px solid #e5e7eb; }
 .cat-subtotal td { background: #eef2f7 !important; font-weight: 600; border-top: 1px solid #d1d5db; }
@@ -78,7 +79,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     Scope: C_PARENT_DEPT = 'Marketing', Non-Headcount Costs (excludes Headcount &amp; Overhead)<br>
     <span class="committed-badge" style="margin-left:0">Committed</span> = vendor has a live prepaid/amortization schedule in <code>mrp_prepaid_spend</code> &mdash; typically contracted, not easily reduced or cancelled &middot;
     Headcount total &amp; discretionary mix still pull C_PL_CLASS = 'Headcount Costs' from <code>mrp_vendor_forecast</code> (Live Model) &mdash; only the non-headcount vendor forecast was replaced<br>
-    Category tags sourced from <code>marketing_budget.xlsx</code> (Vendor_level_expenses); vendors not in that file are tagged by GL account context &mdash; flag any that look off and I'll adjust the mapping
+    Category tags sourced from <code>marketing_budget.xlsx</code> (Vendor_level_expenses); vendors not in that file are tagged by GL account context &mdash; flag any that look off and I'll adjust the mapping<br>
+    <span class="contract-note" style="margin-left:0">Exp M/D/YYYY</span> = contract expiration date, from the Comment/Notes column of the Adaptive export
   </div>
 </div>
 
@@ -359,7 +361,7 @@ function preProcessHeadcount(actRows, fcRows) {
 // the forecast window. It supersedes the old mrp_prepaid_spend gap-fill and the
 // prior Adaptive-patch overlay — both are removed so nothing double-counts.
 // Headcount forecast is unaffected and still pulls from Live Model (see Q.marketingHeadcountForecast).
-const MARKETING_FORECAST_SNAPSHOT_DATE = '2026-07-06';
+const MARKETING_FORECAST_SNAPSHOT_DATE = '2026-07-06 (updated 15:07)';
 const MARKETING_FORECAST_FILE = {
   'AWS - G2': { '2026-06-30': 2121, '2026-07-31': 2086, '2026-08-31': 2121, '2026-09-30': 2121, '2026-10-31': 2121, '2026-11-30': 2121, '2026-12-31': 2121, '2027-01-31': 2121 },
   'AZK Media (AUD)': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
@@ -369,7 +371,7 @@ const MARKETING_FORECAST_FILE = {
   'Arktic Fox': { '2026-06-30': 1804, '2026-07-31': 1804, '2026-08-31': 1804, '2026-09-30': 1804, '2026-10-31': 1804, '2026-11-30': 1804, '2026-12-31': 1804, '2027-01-31': 1804 },
   'Cody Newman': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
   'Communique PR': { '2026-06-30': 25000, '2026-07-31': 25000, '2026-08-31': 25000, '2026-09-30': 25000, '2026-10-31': 25000, '2026-11-30': 25000, '2026-12-31': 25000, '2027-01-31': 25000 },
-  'Credly': { '2026-06-30': 230, '2026-07-31': 230, '2026-08-31': 230, '2026-09-30': 230, '2026-10-31': 230 },
+  'Credly': { '2026-06-30': 230, '2026-07-31': 230, '2026-08-31': 230, '2026-09-30': 230, '2026-10-31': 230, '2026-11-30': 253, '2026-12-31': 253, '2027-01-31': 253 },
   'Digitalzone': { '2026-06-30': 14000, '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
   'Football Northwest LLC dba Seattle Seahawks': { '2026-06-30': 3500, '2026-07-31': 3500, '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
   'Forrester Research, Inc.': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
@@ -388,7 +390,7 @@ const MARKETING_FORECAST_FILE = {
   'On24, Inc.': { '2026-06-30': 3130, '2026-07-31': 3130, '2026-08-31': 3130, '2026-09-30': 3130, '2026-10-31': 3130, '2026-11-30': 3130, '2026-12-31': 3287, '2027-01-31': 3287 },
   'One Time FM Spend - Field Marketing': { '2026-06-30': 8394 },
   'Open AI': { '2026-06-30': 450, '2026-07-31': 450, '2026-08-31': 450, '2026-09-30': 450, '2026-10-31': 450, '2026-11-30': 450, '2026-12-31': 450, '2027-01-31': 450 },
-  'Peerbound': { '2026-06-30': 2207 },
+  'Peerbound': { '2026-06-30': 2207, '2026-07-31': 2427.7, '2026-08-31': 2427.7, '2026-09-30': 2427.7, '2026-10-31': 2427.7, '2026-11-30': 2427.7, '2026-12-31': 2427.7, '2027-01-31': 2427.7 },
   'Phocuswright': { '2026-09-30': 8291, '2026-10-31': 8291, '2026-11-30': 8291, '2026-12-31': 8291 },
   'Point of Loyalty': { '2026-06-30': 1630, '2026-07-31': 1630, '2026-08-31': 1630, '2026-09-30': 1630, '2026-10-31': 1630, '2026-11-30': 1630, '2026-12-31': 1630, '2027-01-31': 1630 },
   'Popl': { '2026-06-30': 966, '2026-07-31': 966, '2026-08-31': 966, '2026-09-30': 966, '2026-10-31': 966, '2026-11-30': 966, '2026-12-31': 966, '2027-01-31': 966 },
@@ -399,12 +401,12 @@ const MARKETING_FORECAST_FILE = {
   'Sendoso': { '2026-06-30': 1927, '2026-07-31': 1927, '2026-08-31': 1927, '2026-09-30': 1927, '2026-10-31': 1927, '2026-11-30': 1927, '2026-12-31': 1927, '2027-01-31': 1927 },
   'SpeedCurve': { '2026-06-30': 114, '2026-07-31': 114, '2026-08-31': 114, '2026-09-30': 114, '2026-10-31': 114, '2026-11-30': 114, '2026-12-31': 114, '2027-01-31': 114 },
   'Sprout Social': { '2026-06-30': 500, '2026-07-31': 500, '2026-08-31': 500, '2026-09-30': 500, '2026-10-31': 500, '2026-11-30': 500, '2026-12-31': 500, '2027-01-31': 500 },
-  'Survey Monkey': { '2026-06-30': 1655, '2026-07-31': 1655, '2026-08-31': 1655, '2026-09-30': 1655 },
+  'Survey Monkey': { '2026-06-30': 1655, '2026-07-31': 1655, '2026-08-31': 1655, '2026-09-30': 1655, '2026-10-31': 1820.5, '2026-11-30': 1820.5, '2026-12-31': 1820.5, '2027-01-31': 1820.5 },
   'The Seattle Mariners': { '2026-06-30': 8750, '2026-07-31': 8750, '2026-08-31': 8750, '2026-09-30': 8750, '2026-10-31': 8750, '2026-11-30': 8750, '2026-12-31': 8750, '2027-01-31': 8750 },
-  'Tribyl': { '2026-06-30': 1102, '2026-07-31': 1102 },
+  'Tribyl': { '2026-06-30': 1102, '2026-07-31': 1102, '2026-08-31': 1212.2, '2026-09-30': 1212.2, '2026-10-31': 1212.2, '2026-11-30': 1212.2, '2026-12-31': 1212.2, '2027-01-31': 1212.2 },
   'Trustactics, LLC': { '2026-06-30': 833, '2026-07-31': 833, '2026-08-31': 833, '2026-09-30': 833, '2026-10-31': 833, '2026-11-30': 833, '2026-12-31': 833, '2027-01-31': 833 },
   'Vendelux': { '2026-06-30': 4151, '2026-07-31': 4151, '2026-08-31': 4151, '2026-09-30': 4151, '2026-10-31': 4151, '2026-11-30': 4151, '2026-12-31': 4151, '2027-01-31': 4151 },
-  'Webless': { '2026-06-30': 2002, '2026-07-31': 2002, '2026-08-31': 2002, '2026-09-30': 2002 },
+  'Webless': { '2026-06-30': 2002, '2026-07-31': 2002, '2026-08-31': 2002, '2026-09-30': 2002, '2026-10-31': 2202.2, '2026-11-30': 2202.2, '2026-12-31': 2202.2, '2027-01-31': 2202.2 },
   'Wingify Software Private Limited': { '2026-06-30': 1638, '2026-07-31': 1638, '2026-08-31': 1289, '2026-09-30': 1721, '2026-10-31': 1721, '2026-11-30': 1721, '2026-12-31': 1721, '2027-01-31': 1721 },
 };
 
@@ -415,6 +417,32 @@ function mergeForecastFile(byVendorMonth) {
       byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + amt;
     }
   }
+}
+
+// "Comment/Notes" column from the same marketing.xlsx export — mostly contract
+// expiration dates FP&A tracks per vendor. Shown as a small note next to the vendor
+// name so renewal timing is visible at a glance, not just in the source file.
+const CONTRACT_NOTES = {
+  'AWS - G2': 'Exp 1/29/2027',
+  'Adobe Creative Cloud': 'Exp 3/4/2027',
+  'Adobe Systems, Inc.': 'Exp 10/1/2026',
+  'Amazon Web Services - Asana': 'Exp 2/18/2027',
+  'Credly': 'Exp 10/31/2026',
+  'Forrester Research, Inc.': 'Exp 2/4/2027',
+  'Gartner Inc.': 'Exp 3/31/2027',
+  'LinkedIn': 'Exp 10/7/2027',
+  'On24, Inc.': 'Exp 10/27/2026',
+  'Peerbound': 'Exp 6/30/2026',
+  'SpeedCurve': 'Exp 8/9/2026',
+  'Survey Monkey': 'Exp 9/21/2026',
+  'Tribyl': 'Exp 7/21/2026',
+  'Webless': 'Exp 7/12/2026',
+  'Wingify Software Private Limited': 'Exp 8/23/2026',
+};
+
+function contractNoteFor(vendor) {
+  const key = Object.keys(CONTRACT_NOTES).find(k => k.toLowerCase() === vendor.toLowerCase());
+  return key ? CONTRACT_NOTES[key] : null;
 }
 
 function preProcessVendorExp(actRows) {
@@ -462,7 +490,9 @@ function buildMarketingVendor(vp, committed, hc) {
   const renderVendorRow = (v) => {
     const isCommitted = committed.has(v.toLowerCase());
     const badges = isCommitted ? '<span class="committed-badge">Committed</span>' : '';
-    let row = `<tr${isCommitted ? ' class="committed-row"' : ''}><td class="label-col" style="${stickyTd}${isCommitted ? ';background:#fff8e6' : ''};padding-left:24px">${v}${badges}</td>`;
+    const note = contractNoteFor(v);
+    const noteHtml = note ? `<span class="contract-note">${note}</span>` : '';
+    let row = `<tr${isCommitted ? ' class="committed-row"' : ''}><td class="label-col" style="${stickyTd}${isCommitted ? ';background:#fff8e6' : ''};padding-left:24px">${v}${badges}${noteHtml}</td>`;
     FY27_MONTHS.forEach(dt => { row += `<td>${K(vp.monthly(v, dt) / 1e3)}</td>`; });
     FY27_QTRS.forEach(q => { row += `<td class="divider-left" style="color:#6b7280">${K(vp.qTotal(v, q.months) / 1e3)}</td>`; });
     row += `<td class="divider-left" style="font-weight:600">${K(vp.vendorTotal(v) / 1e3)}</td></tr>`;
