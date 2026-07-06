@@ -67,6 +67,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   <div class="footnote">
     Actuals: <code>load.finance_sandbox.mrp_financials</code>, C_PL_INCLUDE = TRUE &middot;
     Forecast: <code>load.finance_sandbox.mrp_vendor_forecast</code>, VERSION_NAME = 'Live Model' &middot;
+    Prepaid gap-fill: <code>load.finance_sandbox.mrp_prepaid_spend</code> (committed contracts not yet in the forecast) &middot;
     Scope: C_PARENT_DEPT = 'Marketing', C_PL_CLASS = 'Non-Headcount Costs' (excludes Headcount &amp; Overhead)
   </div>
 </div>
@@ -153,6 +154,20 @@ const Q = {
       AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
     GROUP BY TIME_MONTH_END, VENDOR, ACCOUNT_NAME
     ORDER BY TIME_MONTH_END`,
+
+  // Prepaid/committed contracts (conference sponsorships, co-marketing deals, etc.).
+  // The Live Model forecast only carries recurring SaaS run-rate vendors — one-time
+  // committed spend like RainFocus lives only in this amortization schedule until
+  // FP&A manually adds it to the forecast. M05 seeds the running balance so schedules
+  // already underway before June don't get double-counted; M06-M13 are what's left
+  // to hit the P&L in the forecast window.
+  marketingPrepaid: `
+    SELECT VENDOR_NAME, TOTALAMOUNT,
+      "'2026-05-31'" as M05,
+      "'2026-06-30'" as M06, "'2026-07-31'" as M07, "'2026-08-31'" as M08, "'2026-09-30'" as M09,
+      "'2026-10-31'" as M10, "'2026-11-30'" as M11, "'2026-12-31'" as M12, "'2027-01-31'" as M13
+    FROM load.finance_sandbox.mrp_prepaid_spend
+    WHERE C_PARENT_DEPT = 'Marketing' AND C_PL_CLASS = 'Non-Headcount Costs'`,
 };
 
 // ─── DATE HELPER ─────────────────────────────────────
@@ -177,7 +192,45 @@ function deriveVendorLabel(vendor, accountName) {
   return `${last} (unassigned)`;
 }
 
-function preProcessVendorExp(actRows, fcRows) {
+// Prepaid vendors already confirmed present in mrp_vendor_forecast's Live Model
+// (reconciled manually against mrp_prepaid_spend on 2026-07-03 — their forecast
+// numbers match or exceed the prepaid schedule, so adding the schedule on top
+// would double-count). Everything else in the prepaid table that the forecast
+// shows as $0/absent is a genuine gap and gets added in.
+const PREPAID_ALREADY_IN_FORECAST = new Set([
+  'amazon web services - asana', 'on24, inc.', 'credly inc', 'adobe systems, inc.', 'tribyl, inc',
+]);
+
+const PREPAID_FORECAST_DTS = ['2026-06-30','2026-07-31','2026-08-31','2026-09-30','2026-10-31','2026-11-30','2026-12-31','2027-01-31'];
+const PREPAID_FORECAST_COLS = ['M06','M07','M08','M09','M10','M11','M12','M13'];
+
+// mrp_prepaid_spend's month columns hold the *remaining unamortized balance* as of
+// that month-end (validated against On24's actuals: the balance drop each month
+// matches On24's booked SaaS expense exactly). So the expense recognized in a given
+// month = prior balance - current balance. M05 (May) seeds that running balance;
+// TOTALAMOUNT is the fallback for schedules that hadn't started amortizing by May.
+function mergePrepaidGap(byVendorMonth, prepaidRows) {
+  for (const r of prepaidRows) {
+    const vendor = String(r.VENDOR_NAME || '').trim();
+    if (!vendor || PREPAID_ALREADY_IN_FORECAST.has(vendor.toLowerCase())) continue;
+    let runningBalance = +(r.TOTALAMOUNT ?? 0);
+    if (r.M05 !== '' && r.M05 != null) runningBalance = +r.M05;
+    PREPAID_FORECAST_COLS.forEach((c, i) => {
+      const v = r[c];
+      if (v !== '' && v != null) {
+        const expense = runningBalance - (+v);
+        if (expense) {
+          const dt = PREPAID_FORECAST_DTS[i];
+          if (!byVendorMonth[vendor]) byVendorMonth[vendor] = {};
+          byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + expense;
+        }
+        runningBalance = +v;
+      }
+    });
+  }
+}
+
+function preProcessVendorExp(actRows, fcRows, prepaidRows) {
   const byVendorMonth = {};
   const add = (dt, vendorRaw, accountName, amt) => {
     if (!amt) return;
@@ -187,6 +240,7 @@ function preProcessVendorExp(actRows, fcRows) {
   };
   for (const r of actRows) add(parseDate(r.MONTH_END_DT), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.AMT || 0));
   for (const r of fcRows) add(parseDate(r.TIME_MONTH_END), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.VALUE || 0));
+  mergePrepaidGap(byVendorMonth, prepaidRows || []);
 
   const monthly = (v, dt) => (byVendorMonth[v] && byVendorMonth[v][dt]) || 0;
   const vendorTotal = (v) => Object.values(byVendorMonth[v] || {}).reduce((a, b) => a + b, 0);
@@ -237,13 +291,14 @@ async function loadAll() {
   try {
     msg.textContent = 'Connecting to Snowflake…';
     await waitForCowork();
-    msg.textContent = 'Fetching vendor actuals & forecast…';
-    const [actRows, fcRows] = await Promise.all([
+    msg.textContent = 'Fetching vendor actuals, forecast & prepaid schedule…';
+    const [actRows, fcRows, prepaidRows] = await Promise.all([
       execSQL(Q.marketingVendorActuals),
       execSQL(Q.marketingVendorForecast),
+      execSQL(Q.marketingPrepaid),
     ]);
     msg.textContent = 'Building dashboard…';
-    buildMarketingVendor(preProcessVendorExp(actRows, fcRows));
+    buildMarketingVendor(preProcessVendorExp(actRows, fcRows, prepaidRows));
     document.getElementById('loadingOverlay').style.display = 'none';
   } catch (e) {
     msg.textContent = 'Error: ' + e.message;
