@@ -4,13 +4,12 @@ import os
 from datetime import date
 
 app = Flask(__name__)
-
-ROOT = Path(__file__).parent.parent   # sales-forecast/
+BASE = Path(__file__).parent
 
 
 @app.route("/")
 def index():
-    return send_file(ROOT / "index.html")
+    return send_file(BASE / "index.html")
 
 
 @app.route("/api/pipeline")
