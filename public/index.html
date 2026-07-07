@@ -105,6 +105,7 @@
   <button class="tab-btn" onclick="switchTab('qtrdept',this)">Quarterly by Dept</button>
   <button class="tab-btn" onclick="switchTab('qtr',this)">Quarterly Forecast</button>
   <button class="tab-btn" onclick="switchTab('bridge',this)">Forecast Bridge</button>
+  <button class="tab-btn" onclick="switchTab('gl',this)">GL Detail</button>
 </div>
 
 <div class="content">
@@ -188,6 +189,28 @@
         </table>
       </div>
       <div class="footnote" id="bridgeFootnote"></div>
+    </div>
+  </div>
+
+  <!-- GL DETAIL -->
+  <div id="tab-gl" class="tab-panel">
+    <div class="table-card">
+      <div class="table-title">
+        GL Account Detail — FY27
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="badge" style="background:#fef3c7;color:#92400e">YTD = Actuals Feb–May</span>
+          <span class="badge badge-forecast">RoY = Live Model Jun–Jan</span>
+        </div>
+      </div>
+      <div id="glFilter" style="padding:0 4px 4px"></div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="glHead"></thead>
+          <tbody id="glBody"><tr><td colspan="5" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+          <tfoot id="glFoot"></tfoot>
+        </table>
+      </div>
+      <div class="footnote" id="glFootnote"></div>
     </div>
   </div>
 
@@ -358,6 +381,27 @@ const Q_MONTHLY_LIVE_DEPT = `
     AND COALESCE(C_PARENT_DEPT,'') != ''
     AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
   GROUP BY TIME_MONTH_END, C_PARENT_DEPT, C_PL_CLASS ORDER BY TIME_MONTH_END`;
+
+// GL actuals: YTD by account, dept, class
+const Q_GL_ACTUALS = `
+  SELECT COALESCE(ACCOUNT_NBR,'') AS ACCT, COALESCE(C_PARENT_DEPT,'') AS DEPT,
+    COALESCE(C_PL_CLASS,'') AS CLS, ACCOUNT_TYPE, SUM(AMT) AS AMT
+  FROM load.finance_sandbox.mrp_financials
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31' AND C_PL_INCLUDE = TRUE
+  GROUP BY ACCOUNT_NBR, C_PARENT_DEPT, C_PL_CLASS, ACCOUNT_TYPE
+  ORDER BY C_PARENT_DEPT, ACCOUNT_NBR`;
+
+// GL live model: RoY by account, dept, class
+const Q_GL_LIVE = `
+  SELECT COALESCE(ACCOUNT_CODE,'') AS ACCT, COALESCE(C_PARENT_DEPT,'') AS DEPT,
+    COALESCE(C_REVENUE,'') AS C_REVENUE, COALESCE(C_PL_CLASS,'') AS CLS, SUM(VALUE) AS AMOUNT
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+    AND C_PL_INCLUDE = 1
+    AND (COALESCE(C_PARENT_DEPT,'') != '' OR COALESCE(C_REVENUE,'') != '')
+  GROUP BY ACCOUNT_CODE, C_PARENT_DEPT, C_REVENUE, C_PL_CLASS
+  ORDER BY C_PARENT_DEPT, ACCOUNT_CODE`;
 
 // Historical P&L: FY24–FY26 (mrp_financials)
 const Q_HIST_PL = `
@@ -894,6 +938,125 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
     'Q1 Revenue & Expense = actuals (mrp_financials). Q2–Q4 = Live Model (mrp_forecast). Q1 ARR = actuals (customer_month); Q2–Q4 ARR blends May actuals + Live Model. Cash Burn (Feb–May) = actual month-over-month change in Cash + Equity (mrp_cash); Jun–Jan = Live Model Adjusted_CF.';
 }
 
+// ─── BUILD GL DETAIL ─────────────────────────────────
+function buildGLDetail(glActRows, glLiveRows) {
+  // Parse actuals — key by dept|||acct
+  const actMap = {};
+  for (const r of glActRows) {
+    const acct = r.ACCT || '(no account)';
+    const dept = r.DEPT || '';
+    const key  = `${dept}|||${acct}`;
+    if (!actMap[key]) actMap[key] = { acct, dept, cls: r.CLS||'', isIncome: false, ytd: 0 };
+    const amt = +(r.AMT||0);
+    // Income rows: negate to show as positive revenue
+    actMap[key].ytd += r.ACCOUNT_TYPE === 'Income' ? -amt : amt;
+    if (r.ACCOUNT_TYPE === 'Income') actMap[key].isIncome = true;
+  }
+
+  // Parse live model — key by dept|||acct
+  const liveMap = {};
+  for (const r of glLiveRows) {
+    const acct = r.ACCT || '(no account)';
+    const dept = r.DEPT || '';
+    const key  = `${dept}|||${acct}`;
+    if (!liveMap[key]) liveMap[key] = { acct, dept, cls: r.CLS||'', isIncome: !!(r.C_REVENUE), roy: 0 };
+    liveMap[key].roy += +(r.AMOUNT||0);
+  }
+
+  // Merge into unified rows
+  const allKeys = new Set([...Object.keys(actMap), ...Object.keys(liveMap)]);
+  const allRows = [];
+  for (const key of allKeys) {
+    const a = actMap[key], l = liveMap[key];
+    const [dept, acct] = key.split('|||');
+    allRows.push({
+      acct, dept,
+      cls:      (a||l).cls,
+      isIncome: (a||l).isIncome,
+      ytd:      a ? a.ytd : null,
+      roy:      l ? l.roy : null,
+    });
+  }
+  allRows.sort((a,b)=>`${a.dept}${a.acct}`.localeCompare(`${b.dept}${b.acct}`));
+
+  const depts = [...new Set(allRows.map(r=>r.dept).filter(Boolean))].sort();
+
+  // ── Render ──────────────────────────────────────────
+  function render(filterDept) {
+    const rows = filterDept === 'all' ? allRows : allRows.filter(r=>r.dept===filterDept);
+    let h = '', curDept = null;
+    let totYtd = 0, totRoy = 0;
+
+    for (const r of rows) {
+      // Section header per dept in "all" view
+      if (filterDept === 'all' && r.dept !== curDept) {
+        curDept = r.dept;
+        h += `<tr class="row-section"><td class="label-col" colspan="5">${curDept || '(no dept)'}</td></tr>`;
+      }
+      const ytd = r.ytd != null ? r.ytd : 0;
+      const roy = r.roy != null ? r.roy : 0;
+      const ye  = ytd + roy;
+      totYtd += ytd; totRoy += roy;
+      const typeTag = r.isIncome
+        ? `<span style="background:#dcfce7;color:#166534;font-size:9.5px;padding:1px 5px;border-radius:3px;font-weight:600">REV</span>`
+        : `<span style="background:#fef3c7;color:#92400e;font-size:9.5px;padding:1px 5px;border-radius:3px;font-weight:600">EXP</span>`;
+      const bgYtd='#f0f4fb', bgRoy='#f0fdf4', bgYe='#e9edf2';
+      h += `<tr>
+        <td class="label-col" style="font-size:12px">${r.acct} ${typeTag}</td>
+        <td style="font-size:11px;color:#6b7280;padding:5px 8px;white-space:nowrap">${r.cls}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgYtd}">${r.ytd!=null?KD(r.ytd/1e3):'—'}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgRoy}">${r.roy!=null?KD(r.roy/1e3):'—'}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgYe};font-weight:600">${KD(ye/1e3)}</td>
+      </tr>`;
+    }
+
+    document.getElementById('glBody').innerHTML = h ||
+      '<tr><td colspan="5" style="padding:20px;color:#9ba3af;text-align:center">No accounts for this department</td></tr>';
+
+    // Totals footer
+    const bgYtd='#f0f4fb', bgRoy='#f0fdf4', bgYe='#e9edf2';
+    document.getElementById('glFoot').innerHTML = `
+      <tr style="border-top:2px solid #334155">
+        <td class="label-col" style="font-weight:700;font-size:12px">Total (${rows.length} accounts)</td>
+        <td></td>
+        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYtd}">${KD(totYtd/1e3)}</td>
+        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgRoy}">${KD(totRoy/1e3)}</td>
+        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe}">${KD((totYtd+totRoy)/1e3)}</td>
+      </tr>`;
+
+    document.getElementById('glRowCount').textContent = `${rows.length} accounts`;
+  }
+
+  // ── Header ───────────────────────────────────────────
+  document.getElementById('glHead').innerHTML = `
+    <tr class="col-header">
+      <th class="label-col" style="min-width:200px">GL Account</th>
+      <th style="min-width:130px;color:#6b7280;font-size:10.5px">Class</th>
+      <th style="text-align:right;background:#f0f4fb;color:#374151;font-size:10px;white-space:nowrap">YTD (Feb–May '26)</th>
+      <th style="text-align:right;background:#f0fdf4;color:#374151;font-size:10px;white-space:nowrap">RoY Fcst (Jun–Jan '27)</th>
+      <th style="text-align:right;background:#e9edf2;font-weight:700;font-size:10px;white-space:nowrap">FY27 YE Total</th>
+    </tr>`;
+
+  // ── Filter ───────────────────────────────────────────
+  document.getElementById('glFilter').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 4px 12px">
+      <label style="font-size:12px;font-weight:600;color:#cbd5e1">Department</label>
+      <select id="glDeptFilter" style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer">
+        <option value="all">All Departments</option>
+        ${depts.map(d=>`<option value="${d}">${d}</option>`).join('')}
+      </select>
+      <span id="glRowCount" style="font-size:11px;color:#64748b"></span>
+    </div>`;
+
+  document.getElementById('glDeptFilter').addEventListener('change', e => render(e.target.value));
+
+  render('all');
+
+  document.getElementById('glFootnote').textContent =
+    'YTD actuals from mrp_financials (ACCOUNT_NBR). RoY forecast from mrp_forecast Live Model (ACCOUNT_CODE). ' +
+    'REV = Income account; EXP = Expense account. Values in $K.';
+}
+
 // ─── BUILD QUARTERLY BY DEPT ─────────────────────────
 function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
   // deptMap[dept][cls][dt] = expense
@@ -1275,7 +1438,8 @@ async function init() {
   document.getElementById('loadingMsg').textContent = 'Loading FY27 data…';
   try {
     const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
-           histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows] = await Promise.all([
+           histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
+           glActRows, glLiveRows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -1288,7 +1452,9 @@ async function init() {
       execSQL(Q_HIST_ARR),
       execSQL(Q_HIST_CASH),
       execSQL(Q_MONTHLY_ACTUALS_DEPT),
-      execSQL(Q_MONTHLY_LIVE_DEPT)
+      execSQL(Q_MONTHLY_LIVE_DEPT),
+      execSQL(Q_GL_ACTUALS),
+      execSQL(Q_GL_LIVE)
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -1314,6 +1480,7 @@ async function init() {
     buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist);
+    buildGLDetail(glActRows, glLiveRows);
 
     const now = new Date();
     document.getElementById('asOfBadge').textContent =
@@ -1327,7 +1494,7 @@ async function init() {
     const banner = document.getElementById('errorBanner');
     banner.style.display = 'block';
     banner.textContent = 'Error loading data: ' + err.message;
-    ['execBody','deptBody','qtrDeptBody','qtrBody','bridgeBody'].forEach(id => {
+    ['execBody','deptBody','qtrDeptBody','qtrBody','bridgeBody','glBody'].forEach(id => {
       document.getElementById(id).innerHTML =
         `<tr><td class="label-col" colspan="8" style="color:#991b1b;padding:20px">Failed to load — see error above.</td></tr>`;
     });
