@@ -1111,11 +1111,11 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
         <td style="font-size:11px;color:#6b7280;padding:5px 8px;white-space:nowrap">${r.cls}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgYtd}">${ytdDisplay}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRoy}">${royDisplay}</td>
-        <td style="text-align:right;padding:6px 10px;background:${bgYe};font-weight:600">${KD(ye/1e3)}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRatioCur};font-size:11.5px;color:#4b5563">${fy27R}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRatioDk};font-size:11.5px;color:#6b7280">${fy26R}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRatioMd};font-size:11.5px;color:#6b7280">${fy25R}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRatioLt};font-size:11.5px;color:#6b7280">${fy24R}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgYe};font-weight:600">${KD(ye/1e3)}</td>
       </tr>`;
     }
 
@@ -1128,8 +1128,8 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
         <td></td>
         <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYtd}">${KD(totYtd/1e3)}</td>
         <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgRoy}">${KD(totRoy/1e3)}</td>
-        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe}">${KD((totYtd+totRoy)/1e3)}</td>
         <td colspan="4"></td>
+        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe}">${KD((totYtd+totRoy)/1e3)}</td>
       </tr>`;
 
     document.getElementById('glRowCount').textContent = `${rows.length} accounts`;
