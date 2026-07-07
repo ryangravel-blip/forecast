@@ -6,7 +6,6 @@ snowflake.configure({ logLevel: 'WARN' });
 let _conn = null;
 
 function getPrivateKeyPem(raw) {
-  // Normalize escaped newlines (Vercel stores multiline env vars this way)
   const pem = raw.replace(/\\n/g, '\n').trim();
 
   if (!pem.startsWith('-----BEGIN')) {
@@ -15,7 +14,6 @@ function getPrivateKeyPem(raw) {
 
   const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE || undefined;
 
-  // Import the key (handles PKCS#1 or PKCS#8, encrypted or not)
   let keyObj;
   try {
     keyObj = crypto.createPrivateKey({ key: pem, ...(passphrase ? { passphrase } : {}) });
@@ -23,7 +21,6 @@ function getPrivateKeyPem(raw) {
     throw new Error('Failed to parse private key: ' + e.message);
   }
 
-  // Snowflake SDK JWT auth requires unencrypted PKCS#8 PEM
   return keyObj.export({ type: 'pkcs8', format: 'pem' });
 }
 
@@ -54,13 +51,19 @@ function connect() {
   });
 }
 
+// Use streamResult to avoid paginated-result NOT_FOUND errors in serverless environments
 function runQuery(conn, sql) {
   return new Promise((resolve, reject) => {
     conn.execute({
       sqlText: sql,
-      complete: (err, _stmt, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
+      streamResult: true,
+      complete: (err, stmt) => {
+        if (err) { reject(err); return; }
+        const rows = [];
+        stmt.streamRows()
+          .on('error', reject)
+          .on('data',  row => rows.push(row))
+          .on('end',   () => resolve(rows));
       },
     });
   });
