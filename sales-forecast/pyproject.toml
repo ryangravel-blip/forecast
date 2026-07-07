@@ -1,2 +1,2 @@
 [tool.vercel]
-entrypoint = "api/pipeline.py"
+entrypoint = "api.pipeline:app"
