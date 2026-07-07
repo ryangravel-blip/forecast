@@ -444,6 +444,20 @@ function mergePrepaidGapAdditions(byVendorMonth) {
   }
 }
 
+// Planned discretionary spend reduction, entered by Ryan on 2026-07-06: -$83,333/mo
+// Aug-26 through Jan-27. Not a vendor — a target/plan line that reduces the Non-HC
+// total. Kept out of category grouping and rendered as its own row just above the
+// Total Non-HC line.
+const EXPENSE_REDUCTION_LABEL = 'Expense Reduction';
+const EXPENSE_REDUCTION = {
+  '2026-08-31': -83333, '2026-09-30': -83333, '2026-10-31': -83333,
+  '2026-11-30': -83333, '2026-12-31': -83333, '2027-01-31': -83333,
+};
+
+function mergeExpenseReduction(byVendorMonth) {
+  byVendorMonth[EXPENSE_REDUCTION_LABEL] = { ...EXPENSE_REDUCTION };
+}
+
 // "Comment/Notes" column from the same marketing.xlsx export — mostly contract
 // expiration dates FP&A tracks per vendor. Shown as a small note next to the vendor
 // name so renewal timing is visible at a glance, not just in the source file.
@@ -481,6 +495,7 @@ function preProcessVendorExp(actRows) {
   for (const r of actRows) add(parseDate(r.MONTH_END_DT), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.AMT || 0));
   mergeForecastFile(byVendorMonth);
   mergePrepaidGapAdditions(byVendorMonth);
+  mergeExpenseReduction(byVendorMonth);
 
   const monthly = (v, dt) => (byVendorMonth[v] && byVendorMonth[v][dt]) || 0;
   const vendorTotal = (v) => Object.values(byVendorMonth[v] || {}).reduce((a, b) => a + b, 0);
@@ -529,8 +544,9 @@ function buildMarketingVendor(vp, committed, hc) {
   // category group — it's a balancing/placeholder entry, not a real vendor to sort
   // alphabetically within a category.
   const isPlug = (v) => v.trim().toLowerCase() === '[plug}';
+  const isExpenseReduction = (v) => v === EXPENSE_REDUCTION_LABEL;
   const plugVendors = vp.vendors.filter(isPlug);
-  const normalVendors = vp.vendors.filter(v => !isPlug(v));
+  const normalVendors = vp.vendors.filter(v => !isPlug(v) && !isExpenseReduction(v));
 
   // Group by category, sort vendors alphabetically within each group, and order
   // the groups themselves by total FY27 spend (largest category first).
@@ -555,6 +571,7 @@ function buildMarketingVendor(vp, committed, hc) {
     FY27_QTRS.forEach(q => { body += `<td class="divider-left">${K(qCat(q.months) / 1e3)}</td>`; });
     body += `<td class="divider-left">${K(totalCat / 1e3)}</td></tr>`;
   }
+  if (vp.vendors.includes(EXPENSE_REDUCTION_LABEL)) body += renderVendorRow(EXPENSE_REDUCTION_LABEL);
   for (const v of plugVendors) body += renderVendorRow(v);
 
   body += `<tr class="row-total"><td class="label-col" style="${stickyTd};background:#d6dde6">Total Non-HC Marketing Vendor Spend</td>`;
