@@ -1,2 +1,1 @@
-flask
 snowflake-connector-python>=3.6.0
