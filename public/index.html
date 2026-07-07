@@ -968,7 +968,7 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
 
 // ─── BUILD GL DETAIL ─────────────────────────────────
 function buildGLDetail(glActRows, glLiveRows, glHistRows) {
-  // Ratio helpers (same logic as buildBridge)
+  // Ratio helpers
   function ratio(r, y) {
     if (y == null || r == null || Math.abs(y) < 500) return null;
     const v = r / y;
@@ -976,94 +976,141 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
   }
   const fR = v => v === null ? '—' : N(v, 1) + 'x';
 
-  // Parse actuals — key by dept|||acct
-  const actMap = {};
+  // ── Aggregate by ACCT (not dept) so the same account number always appears as one row.
+  // Dept-level buckets are kept separately for the dept filter.
+
+  const metaMap   = {};   // acct -> { name, cls, isIncome }
+  const ytdAll    = {};   // acct -> total YTD
+  const royAll    = {};   // acct -> total RoY
+  const histAll   = {};   // acct -> { FY26_YTD: ..., ... }
+  const acctDepts = {};   // acct -> Set<dept>
+
+  // dept-scoped buckets (for dept filter numbers)
+  const ytdD  = {};   // `${dept}|||${acct}` -> ytd
+  const royD  = {};   // `${dept}|||${acct}` -> roy
+  const histD = {};   // `${dept}|||${acct}` -> { period: val }
+
+  // Process actuals
   for (const r of glActRows) {
     const acct = r.ACCT || '(no account)';
     const name = r.ACCT_NAME || '';
     const dept = r.DEPT || '';
-    const key  = `${dept}|||${acct}`;
-    if (!actMap[key]) actMap[key] = { acct, name, dept, cls: r.CLS||'', isIncome: false, ytd: 0 };
-    const amt = +(r.AMT||0);
-    actMap[key].ytd += r.ACCOUNT_TYPE === 'Income' ? -amt : amt;
-    if (r.ACCOUNT_TYPE === 'Income') actMap[key].isIncome = true;
-    if (name && !actMap[key].name) actMap[key].name = name;
+    const amt  = +(r.AMT||0);
+    const val  = r.ACCOUNT_TYPE === 'Income' ? -amt : amt;
+    const isIn = r.ACCOUNT_TYPE === 'Income';
+
+    if (!metaMap[acct]) metaMap[acct] = { name, cls: r.CLS||'', isIncome: isIn };
+    if (name && !metaMap[acct].name) metaMap[acct].name = name;
+
+    ytdAll[acct] = (ytdAll[acct] || 0) + val;
+    if (!acctDepts[acct]) acctDepts[acct] = new Set();
+    if (dept) acctDepts[acct].add(dept);
+
+    const dk = `${dept}|||${acct}`;
+    ytdD[dk] = (ytdD[dk] || 0) + val;
   }
 
-  // Parse live model — key by dept|||acct
-  const liveMap = {};
+  // Process live model
   for (const r of glLiveRows) {
     const acct = r.ACCT || '(no account)';
     const dept = r.DEPT || '';
-    const key  = `${dept}|||${acct}`;
-    if (!liveMap[key]) liveMap[key] = { acct, dept, cls: r.CLS||'', isIncome: !!(r.C_REVENUE), roy: 0 };
-    liveMap[key].roy += +(r.AMOUNT||0);
+    const val  = +(r.AMOUNT||0);
+
+    if (!metaMap[acct]) metaMap[acct] = { name: '', cls: r.CLS||'', isIncome: !!(r.C_REVENUE) };
+
+    royAll[acct] = (royAll[acct] || 0) + val;
+    if (!acctDepts[acct]) acctDepts[acct] = new Set();
+    if (dept) acctDepts[acct].add(dept);
+
+    const dk = `${dept}|||${acct}`;
+    royD[dk] = (royD[dk] || 0) + val;
   }
 
-  // Parse historical — key by dept|||acct → {FY26_YTD, FY26_ROY, ...}
-  const histMap = {};
+  // Process historical
   for (const r of glHistRows) {
     const acct = r.ACCT || '(no account)';
     const dept = r.DEPT || '';
-    const key  = `${dept}|||${acct}`;
-    if (!histMap[key]) histMap[key] = {};
-    const amt = +(r.AMT||0);
-    const val = r.ACCOUNT_TYPE === 'Income' ? -amt : amt;
-    histMap[key][r.PERIOD] = (histMap[key][r.PERIOD] || 0) + val;
+    const amt  = +(r.AMT||0);
+    const val  = r.ACCOUNT_TYPE === 'Income' ? -amt : amt;
+
+    if (!histAll[acct]) histAll[acct] = {};
+    histAll[acct][r.PERIOD] = (histAll[acct][r.PERIOD] || 0) + val;
+
+    const dk = `${dept}|||${acct}`;
+    if (!histD[dk]) histD[dk] = {};
+    histD[dk][r.PERIOD] = (histD[dk][r.PERIOD] || 0) + val;
   }
 
-  // Merge into unified rows
-  const allKeys = new Set([...Object.keys(actMap), ...Object.keys(liveMap)]);
+  // One row per unique account number
+  const allAccts = new Set([...Object.keys(ytdAll), ...Object.keys(royAll)]);
   const allRows = [];
-  for (const key of allKeys) {
-    const a = actMap[key], l = liveMap[key];
-    const [dept, acct] = key.split('|||');
-    const hist = histMap[key] || {};
+  for (const acct of allAccts) {
+    const meta = metaMap[acct] || { name: '', cls: '', isIncome: false };
     allRows.push({
-      acct, dept,
-      name:     a ? (a.name || '') : '',
-      cls:      (a||l).cls,
-      isIncome: (a||l).isIncome,
-      ytd:      a ? a.ytd : null,
-      roy:      l ? l.roy : null,
-      hist,
+      acct,
+      name:     meta.name,
+      cls:      meta.cls,
+      isIncome: meta.isIncome,
+      depts:    acctDepts[acct] || new Set(),
+      ytd:      ytdAll[acct] ?? null,
+      roy:      royAll[acct] ?? null,
+      hist:     histAll[acct] || {},
     });
   }
-  allRows.sort((a,b)=>`${a.dept}${a.acct}`.localeCompare(`${b.dept}${b.acct}`));
+  allRows.sort((a,b) => a.acct.localeCompare(b.acct));
 
-  const depts = [...new Set(allRows.map(r=>r.dept).filter(Boolean))].sort();
+  // Depts from all sources
+  const allDeptSet = new Set();
+  for (const d of Object.keys(ytdD).concat(Object.keys(royD))) {
+    const dept = d.split('|||')[0];
+    if (dept) allDeptSet.add(dept);
+  }
+  const depts = [...allDeptSet].sort();
 
   const bgYtd='#f0f4fb', bgRoy='#f0fdf4', bgYe='#e9edf2';
   const bgRatioCur='#fafafa', bgRatioDk='#f2f4f6', bgRatioMd='#f5f6f8', bgRatioLt='#f8f9fa';
 
   // ── Render ──────────────────────────────────────────
   function render(filterDept) {
-    const rows = filterDept === 'all' ? allRows : allRows.filter(r=>r.dept===filterDept);
+    const rows = filterDept === 'all'
+      ? allRows
+      : allRows.filter(r => r.depts.has(filterDept));
     let h = '';
     let totYtd = 0, totRoy = 0;
 
     for (const r of rows) {
-      const ytd = r.ytd != null ? r.ytd : 0;
-      const roy = r.roy != null ? r.roy : 0;
-      const ye  = ytd + roy;
+      let ytd, roy, hist;
+      if (filterDept === 'all') {
+        ytd  = r.ytd  ?? 0;
+        roy  = r.roy  ?? 0;
+        hist = r.hist;
+      } else {
+        const dk = `${filterDept}|||${r.acct}`;
+        ytd  = ytdD[dk]  ?? 0;
+        roy  = royD[dk]  ?? 0;
+        hist = histD[dk] || {};
+      }
+      const ye = ytd + roy;
       totYtd += ytd; totRoy += roy;
 
       const fy27R = fR(ratio(roy, ytd));
-      const fy26R = fR(ratio(r.hist['FY26_ROY']||0, r.hist['FY26_YTD']||0));
-      const fy25R = fR(ratio(r.hist['FY25_ROY']||0, r.hist['FY25_YTD']||0));
-      const fy24R = fR(ratio(r.hist['FY24_ROY']||0, r.hist['FY24_YTD']||0));
+      const fy26R = fR(ratio(hist['FY26_ROY']||0, hist['FY26_YTD']||0));
+      const fy25R = fR(ratio(hist['FY25_ROY']||0, hist['FY25_YTD']||0));
+      const fy24R = fR(ratio(hist['FY24_ROY']||0, hist['FY24_YTD']||0));
 
       const typeTag = r.isIncome
         ? `<span style="background:#dcfce7;color:#166534;font-size:9.5px;padding:1px 5px;border-radius:3px;font-weight:600">REV</span>`
         : `<span style="background:#fef3c7;color:#92400e;font-size:9.5px;padding:1px 5px;border-radius:3px;font-weight:600">EXP</span>`;
 
       const acctLabel = r.name ? `${r.acct} – ${r.name}` : r.acct;
+      const ytdDisplay = ytdAll[r.acct] != null ? KD(ytd/1e3) : '—';
+      const royDisplay = royAll[r.acct] != null ? KD(roy/1e3) : '—';
 
       h += `<tr>
         <td class="label-col" style="font-size:12px">${acctLabel} ${typeTag}</td>
         <td style="font-size:11px;color:#6b7280;padding:5px 8px;white-space:nowrap">${r.cls}</td>
-        <td style="text-align:right;padding:6px 10px;background:${bgYtd}">${r.ytd!=null?KD(r.ytd/1e3):'—'}</td>
-        <td style="text-align:right;padding:6px 10px;background:${bgRoy}">${r.roy!=null?KD(r.roy/1e3):'—'}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgYtd}">${ytdDisplay}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgRoy}">${royDisplay}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgYe};font-weight:600">${KD(ye/1e3)}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRatioCur};font-size:11.5px;color:#4b5563">${fy27R}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRatioDk};font-size:11.5px;color:#6b7280">${fy26R}</td>
