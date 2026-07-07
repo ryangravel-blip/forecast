@@ -258,18 +258,27 @@ function varClass(a, b, dir) {
 }
 
 // ─── SQL EXECUTION ───────────────────────────────────
+const USE_COWORK = () => !!window.cowork?.callMcpTool;
+
 async function execSQL(sql) {
-  const res = await fetch('/api/query', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sql })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+  if (!USE_COWORK()) {
+    const res = await fetch('/api/sql', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sql}) });
+    if (!res.ok) throw new Error('SQL error: ' + (await res.text()).slice(0,200));
+    return res.json();
   }
-  const { rows } = await res.json();
-  return rows;
+  const raw = await window.cowork.callMcpTool('mcp__2c211ab0-a702-4355-9d71-4acf3f0ad8d5__sql_exec_tool', { sql });
+  let jsonStr;
+  if (typeof raw === 'string') jsonStr = raw;
+  else if (Array.isArray(raw)) { const b = raw.find(c=>c.type==='text'); jsonStr = b?b.text:JSON.stringify(raw); }
+  else if (raw?.content) { const b = Array.isArray(raw.content)?raw.content.find(c=>c.type==='text'):null; jsonStr=b?b.text:JSON.stringify(raw.content); }
+  else jsonStr = JSON.stringify(raw);
+  let p;
+  try { p = JSON.parse(jsonStr); }
+  catch(e) { throw new Error('SQL parse error: ' + jsonStr.slice(0,200)); }
+  if (p.error || p.message?.startsWith?.('MCP')) throw new Error(p.error || p.message);
+  const rs = p.result_set || p;
+  const cols = rs.resultSetMetaData.rowType.map(c => c.name);
+  return rs.data.map(row => { const o={}; cols.forEach((c,i)=>{ o[c]=row[i]; }); return o; });
 }
 
 // ─── QUERIES ─────────────────────────────────────────
@@ -384,11 +393,12 @@ const Q_MONTHLY_LIVE_DEPT = `
 
 // GL actuals: YTD by account, dept, class
 const Q_GL_ACTUALS = `
-  SELECT COALESCE(ACCOUNT_NBR,'') AS ACCT, COALESCE(C_PARENT_DEPT,'') AS DEPT,
-    COALESCE(C_PL_CLASS,'') AS CLS, ACCOUNT_TYPE, SUM(AMT) AS AMT
+  SELECT COALESCE(ACCOUNT_NBR,'') AS ACCT, COALESCE(ACCOUNT_NAME,'') AS ACCT_NAME,
+    COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
+    ACCOUNT_TYPE, SUM(AMT) AS AMT
   FROM load.finance_sandbox.mrp_financials
   WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31' AND C_PL_INCLUDE = TRUE
-  GROUP BY ACCOUNT_NBR, C_PARENT_DEPT, C_PL_CLASS, ACCOUNT_TYPE
+  GROUP BY ACCOUNT_NBR, ACCOUNT_NAME, C_PARENT_DEPT, C_PL_CLASS, ACCOUNT_TYPE
   ORDER BY C_PARENT_DEPT, ACCOUNT_NBR`;
 
 // GL live model: RoY by account, dept, class
@@ -402,6 +412,24 @@ const Q_GL_LIVE = `
     AND (COALESCE(C_PARENT_DEPT,'') != '' OR COALESCE(C_REVENUE,'') != '')
   GROUP BY ACCOUNT_CODE, C_PARENT_DEPT, C_REVENUE, C_PL_CLASS
   ORDER BY C_PARENT_DEPT, ACCOUNT_CODE`;
+
+// GL historical actuals: FY24-FY26 YTD + RoY by account
+const Q_GL_HIST = `
+  SELECT COALESCE(ACCOUNT_NBR,'') AS ACCT, COALESCE(C_PARENT_DEPT,'') AS DEPT,
+    ACCOUNT_TYPE,
+    CASE
+      WHEN MONTH_END_DT BETWEEN '2025-02-01' AND '2025-05-31' THEN 'FY26_YTD'
+      WHEN MONTH_END_DT BETWEEN '2025-06-01' AND '2026-01-31' THEN 'FY26_ROY'
+      WHEN MONTH_END_DT BETWEEN '2024-02-01' AND '2024-05-31' THEN 'FY25_YTD'
+      WHEN MONTH_END_DT BETWEEN '2024-06-01' AND '2025-01-31' THEN 'FY25_ROY'
+      WHEN MONTH_END_DT BETWEEN '2023-02-01' AND '2023-05-31' THEN 'FY24_YTD'
+      WHEN MONTH_END_DT BETWEEN '2023-06-01' AND '2024-01-31' THEN 'FY24_ROY'
+    END AS PERIOD,
+    SUM(AMT) AS AMT
+  FROM load.finance_sandbox.mrp_financials
+  WHERE C_PL_INCLUDE = TRUE AND MONTH_END_DT BETWEEN '2023-02-01' AND '2026-01-31'
+  GROUP BY 1, 2, 3, 4 HAVING PERIOD IS NOT NULL
+  ORDER BY DEPT, ACCT`;
 
 // Historical P&L: FY24–FY26 (mrp_financials)
 const Q_HIST_PL = `
@@ -939,18 +967,27 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
 }
 
 // ─── BUILD GL DETAIL ─────────────────────────────────
-function buildGLDetail(glActRows, glLiveRows) {
+function buildGLDetail(glActRows, glLiveRows, glHistRows) {
+  // Ratio helpers (same logic as buildBridge)
+  function ratio(r, y) {
+    if (y == null || r == null || Math.abs(y) < 500) return null;
+    const v = r / y;
+    return v < 0 ? null : v;
+  }
+  const fR = v => v === null ? '—' : N(v, 1) + 'x';
+
   // Parse actuals — key by dept|||acct
   const actMap = {};
   for (const r of glActRows) {
     const acct = r.ACCT || '(no account)';
+    const name = r.ACCT_NAME || '';
     const dept = r.DEPT || '';
     const key  = `${dept}|||${acct}`;
-    if (!actMap[key]) actMap[key] = { acct, dept, cls: r.CLS||'', isIncome: false, ytd: 0 };
+    if (!actMap[key]) actMap[key] = { acct, name, dept, cls: r.CLS||'', isIncome: false, ytd: 0 };
     const amt = +(r.AMT||0);
-    // Income rows: negate to show as positive revenue
     actMap[key].ytd += r.ACCOUNT_TYPE === 'Income' ? -amt : amt;
     if (r.ACCOUNT_TYPE === 'Income') actMap[key].isIncome = true;
+    if (name && !actMap[key].name) actMap[key].name = name;
   }
 
   // Parse live model — key by dept|||acct
@@ -963,58 +1000,81 @@ function buildGLDetail(glActRows, glLiveRows) {
     liveMap[key].roy += +(r.AMOUNT||0);
   }
 
+  // Parse historical — key by dept|||acct → {FY26_YTD, FY26_ROY, ...}
+  const histMap = {};
+  for (const r of glHistRows) {
+    const acct = r.ACCT || '(no account)';
+    const dept = r.DEPT || '';
+    const key  = `${dept}|||${acct}`;
+    if (!histMap[key]) histMap[key] = {};
+    const amt = +(r.AMT||0);
+    const val = r.ACCOUNT_TYPE === 'Income' ? -amt : amt;
+    histMap[key][r.PERIOD] = (histMap[key][r.PERIOD] || 0) + val;
+  }
+
   // Merge into unified rows
   const allKeys = new Set([...Object.keys(actMap), ...Object.keys(liveMap)]);
   const allRows = [];
   for (const key of allKeys) {
     const a = actMap[key], l = liveMap[key];
     const [dept, acct] = key.split('|||');
+    const hist = histMap[key] || {};
     allRows.push({
       acct, dept,
+      name:     a ? (a.name || '') : '',
       cls:      (a||l).cls,
       isIncome: (a||l).isIncome,
       ytd:      a ? a.ytd : null,
       roy:      l ? l.roy : null,
+      hist,
     });
   }
   allRows.sort((a,b)=>`${a.dept}${a.acct}`.localeCompare(`${b.dept}${b.acct}`));
 
   const depts = [...new Set(allRows.map(r=>r.dept).filter(Boolean))].sort();
 
+  const bgYtd='#f0f4fb', bgRoy='#f0fdf4', bgYe='#e9edf2';
+  const bgRatioCur='#fafafa', bgRatioDk='#f2f4f6', bgRatioMd='#f5f6f8', bgRatioLt='#f8f9fa';
+
   // ── Render ──────────────────────────────────────────
   function render(filterDept) {
     const rows = filterDept === 'all' ? allRows : allRows.filter(r=>r.dept===filterDept);
-    let h = '', curDept = null;
+    let h = '';
     let totYtd = 0, totRoy = 0;
 
     for (const r of rows) {
-      // Section header per dept in "all" view
-      if (filterDept === 'all' && r.dept !== curDept) {
-        curDept = r.dept;
-        h += `<tr class="row-section"><td class="label-col" colspan="5">${curDept || '(no dept)'}</td></tr>`;
-      }
       const ytd = r.ytd != null ? r.ytd : 0;
       const roy = r.roy != null ? r.roy : 0;
       const ye  = ytd + roy;
       totYtd += ytd; totRoy += roy;
+
+      const fy27R = fR(ratio(roy, ytd));
+      const fy26R = fR(ratio(r.hist['FY26_ROY']||0, r.hist['FY26_YTD']||0));
+      const fy25R = fR(ratio(r.hist['FY25_ROY']||0, r.hist['FY25_YTD']||0));
+      const fy24R = fR(ratio(r.hist['FY24_ROY']||0, r.hist['FY24_YTD']||0));
+
       const typeTag = r.isIncome
         ? `<span style="background:#dcfce7;color:#166534;font-size:9.5px;padding:1px 5px;border-radius:3px;font-weight:600">REV</span>`
         : `<span style="background:#fef3c7;color:#92400e;font-size:9.5px;padding:1px 5px;border-radius:3px;font-weight:600">EXP</span>`;
-      const bgYtd='#f0f4fb', bgRoy='#f0fdf4', bgYe='#e9edf2';
+
+      const acctLabel = r.name ? `${r.acct} – ${r.name}` : r.acct;
+
       h += `<tr>
-        <td class="label-col" style="font-size:12px">${r.acct} ${typeTag}</td>
+        <td class="label-col" style="font-size:12px">${acctLabel} ${typeTag}</td>
         <td style="font-size:11px;color:#6b7280;padding:5px 8px;white-space:nowrap">${r.cls}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgYtd}">${r.ytd!=null?KD(r.ytd/1e3):'—'}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRoy}">${r.roy!=null?KD(r.roy/1e3):'—'}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgYe};font-weight:600">${KD(ye/1e3)}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgRatioCur};font-size:11.5px;color:#4b5563">${fy27R}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgRatioDk};font-size:11.5px;color:#6b7280">${fy26R}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgRatioMd};font-size:11.5px;color:#6b7280">${fy25R}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgRatioLt};font-size:11.5px;color:#6b7280">${fy24R}</td>
       </tr>`;
     }
 
     document.getElementById('glBody').innerHTML = h ||
-      '<tr><td colspan="5" style="padding:20px;color:#9ba3af;text-align:center">No accounts for this department</td></tr>';
+      '<tr><td colspan="9" style="padding:20px;color:#9ba3af;text-align:center">No accounts for this department</td></tr>';
 
-    // Totals footer
-    const bgYtd='#f0f4fb', bgRoy='#f0fdf4', bgYe='#e9edf2';
     document.getElementById('glFoot').innerHTML = `
       <tr style="border-top:2px solid #334155">
         <td class="label-col" style="font-weight:700;font-size:12px">Total (${rows.length} accounts)</td>
@@ -1022,6 +1082,7 @@ function buildGLDetail(glActRows, glLiveRows) {
         <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYtd}">${KD(totYtd/1e3)}</td>
         <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgRoy}">${KD(totRoy/1e3)}</td>
         <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe}">${KD((totYtd+totRoy)/1e3)}</td>
+        <td colspan="4"></td>
       </tr>`;
 
     document.getElementById('glRowCount').textContent = `${rows.length} accounts`;
@@ -1029,12 +1090,22 @@ function buildGLDetail(glActRows, glLiveRows) {
 
   // ── Header ───────────────────────────────────────────
   document.getElementById('glHead').innerHTML = `
+    <tr style="background:#1e293b">
+      <th class="label-col hdr-lbl" style="min-width:260px"></th>
+      <th colspan="2" style="background:#3b5180;color:#e2e8f0;text-align:center;padding:6px">FY27 Actuals + Forecast</th>
+      <th colspan="4" style="background:#4b5563;color:#f3f4f6;text-align:center;padding:6px">RoY / YTD Multiple</th>
+      <th style="background:#2d3748;color:#e2e8f0;text-align:center;padding:6px">YE Total</th>
+    </tr>
     <tr class="col-header">
-      <th class="label-col" style="min-width:200px">GL Account</th>
+      <th class="label-col" style="min-width:260px">GL Account</th>
       <th style="min-width:130px;color:#6b7280;font-size:10.5px">Class</th>
-      <th style="text-align:right;background:#f0f4fb;color:#374151;font-size:10px;white-space:nowrap">YTD (Feb–May '26)</th>
-      <th style="text-align:right;background:#f0fdf4;color:#374151;font-size:10px;white-space:nowrap">RoY Fcst (Jun–Jan '27)</th>
-      <th style="text-align:right;background:#e9edf2;font-weight:700;font-size:10px;white-space:nowrap">FY27 YE Total</th>
+      <th style="text-align:right;background:${bgYtd};color:#374151;font-size:10px;white-space:nowrap">YTD (Feb–May '26)</th>
+      <th style="text-align:right;background:${bgRoy};color:#374151;font-size:10px;white-space:nowrap">RoY Fcst (Jun–Jan '27)</th>
+      <th style="text-align:right;background:${bgRatioCur};color:#6b7280;font-size:10px;white-space:nowrap">FY27 Fcst</th>
+      <th style="text-align:right;background:${bgRatioDk};color:#6b7280;font-size:10px;white-space:nowrap">FY26 Actual</th>
+      <th style="text-align:right;background:${bgRatioMd};color:#6b7280;font-size:10px;white-space:nowrap">FY25 Actual</th>
+      <th style="text-align:right;background:${bgRatioLt};color:#6b7280;font-size:10px;white-space:nowrap">FY24 Actual</th>
+      <th style="text-align:right;background:${bgYe};font-weight:700;font-size:10px;white-space:nowrap">FY27 YE Total</th>
     </tr>`;
 
   // ── Filter ───────────────────────────────────────────
@@ -1054,7 +1125,7 @@ function buildGLDetail(glActRows, glLiveRows) {
 
   document.getElementById('glFootnote').textContent =
     'YTD actuals from mrp_financials (ACCOUNT_NBR). RoY forecast from mrp_forecast Live Model (ACCOUNT_CODE). ' +
-    'REV = Income account; EXP = Expense account. Values in $K.';
+    'REV = Income account; EXP = Expense account. RoY/YTD = Rest-of-Year ÷ Year-to-Date; shown as —  when denominator < $500 or ratio is negative. Values in $K.';
 }
 
 // ─── BUILD QUARTERLY BY DEPT ─────────────────────────
@@ -1434,12 +1505,22 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
 }
 
 // ─── INIT ────────────────────────────────────────────
+async function waitForCowork(timeout=5000) {
+  const start=Date.now();
+  while (!window.cowork?.callMcpTool) {
+    if (Date.now()-start>timeout) return;
+    await new Promise(r=>setTimeout(r,150));
+  }
+}
+
 async function init() {
+  document.getElementById('loadingMsg').textContent = 'Connecting to Snowflake…';
+  await waitForCowork();
   document.getElementById('loadingMsg').textContent = 'Loading FY27 data…';
   try {
     const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
            histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
-           glActRows, glLiveRows] = await Promise.all([
+           glActRows, glLiveRows, glHistRows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -1454,7 +1535,8 @@ async function init() {
       execSQL(Q_MONTHLY_ACTUALS_DEPT),
       execSQL(Q_MONTHLY_LIVE_DEPT),
       execSQL(Q_GL_ACTUALS),
-      execSQL(Q_GL_LIVE)
+      execSQL(Q_GL_LIVE),
+      execSQL(Q_GL_HIST)
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -1480,7 +1562,7 @@ async function init() {
     buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist);
-    buildGLDetail(glActRows, glLiveRows);
+    buildGLDetail(glActRows, glLiveRows, glHistRows);
 
     const now = new Date();
     document.getElementById('asOfBadge').textContent =
