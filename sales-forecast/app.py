@@ -16,16 +16,33 @@ def index():
 def pipeline():
     try:
         import snowflake.connector
+        from cryptography.hazmat.primitives.serialization import (
+            load_pem_private_key, Encoding, PrivateFormat, NoEncryption
+        )
 
-        conn = snowflake.connector.connect(
-            user=os.environ["SNOWFLAKE_USER"],
-            password=os.environ["SNOWFLAKE_PASSWORD"],
+        # Load private key — env var may use literal \n instead of real newlines
+        raw_key = os.environ["SNOWFLAKE_PRIVATE_KEY"].replace("\\n", "\n").encode()
+        private_key = load_pem_private_key(raw_key, password=None)
+        private_key_der = private_key.private_bytes(
+            encoding=Encoding.DER,
+            format=PrivateFormat.PKCS8,
+            encryption_algorithm=NoEncryption(),
+        )
+
+        conn_kwargs = dict(
+            user=os.environ["SNOWFLAKE_USERNAME"],
             account=os.environ["SNOWFLAKE_ACCOUNT"],
+            private_key=private_key_der,
             warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "PROD_ADHOC_WH"),
-            database="PROD",
+            database=os.environ.get("SNOWFLAKE_DATABASE", "PROD"),
             schema="SALESFORCE",
             login_timeout=30,
         )
+        role = os.environ.get("SNOWFLAKE_ROLE")
+        if role:
+            conn_kwargs["role"] = role
+
+        conn = snowflake.connector.connect(**conn_kwargs)
         cur = conn.cursor()
         cur.execute("""
             SELECT
@@ -78,4 +95,5 @@ def pipeline():
         return resp
 
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        import traceback
+        return jsonify({"error": str(exc), "detail": traceback.format_exc()}), 500

@@ -5,4 +5,5 @@ requires-python = ">=3.9"
 dependencies = [
     "flask",
     "snowflake-connector-python>=3.6.0",
+    "cryptography>=41.0.0",
 ]
