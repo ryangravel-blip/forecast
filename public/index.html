@@ -264,7 +264,7 @@ async function execSQL(sql) {
   if (!USE_COWORK()) {
     const res = await fetch('/api/query', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sql}) });
     if (!res.ok) throw new Error('SQL error: ' + (await res.text()).slice(0,200));
-    return res.json();
+    const data = await res.json(); return data.rows ?? [];
   }
   const raw = await window.cowork.callMcpTool('mcp__2c211ab0-a702-4355-9d71-4acf3f0ad8d5__sql_exec_tool', { sql });
   let jsonStr;
