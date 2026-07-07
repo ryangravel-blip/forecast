@@ -1071,10 +1071,10 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
   const bgRatioCur='#fafafa', bgRatioDk='#f2f4f6', bgRatioMd='#f5f6f8', bgRatioLt='#f8f9fa';
 
   // ── Render ──────────────────────────────────────────
-  function render(filterDept) {
-    const rows = filterDept === 'all'
-      ? allRows
-      : allRows.filter(r => r.depts.has(filterDept));
+  function render(filterDept, filterCls) {
+    let rows = allRows;
+    if (filterDept !== 'all') rows = rows.filter(r => r.depts.has(filterDept));
+    if (filterCls  !== 'all') rows = rows.filter(r => r.cls === filterCls);
     let h = '';
     let totYtd = 0, totRoy = 0;
 
@@ -1156,19 +1156,36 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
     </tr>`;
 
   // ── Filter ───────────────────────────────────────────
+  // Build class list
+  const clsList = [...new Set(allRows.map(r => r.cls).filter(Boolean))].sort();
+
   document.getElementById('glFilter').innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 4px 12px">
-      <label style="font-size:12px;font-weight:600;color:#cbd5e1">Department</label>
-      <select id="glDeptFilter" style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer">
-        <option value="all">All Departments</option>
-        ${depts.map(d=>`<option value="${d}">${d}</option>`).join('')}
-      </select>
+    <div style="display:flex;align-items:center;gap:16px;padding:8px 4px 12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;font-weight:600;color:#cbd5e1">Department</label>
+        <select id="glDeptFilter" style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer">
+          <option value="all">All Departments</option>
+          ${depts.map(d=>`<option value="${d}">${d}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;font-weight:600;color:#cbd5e1">Class</label>
+        <select id="glClsFilter" style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer">
+          <option value="all">All Classes</option>
+          ${clsList.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </div>
       <span id="glRowCount" style="font-size:11px;color:#64748b"></span>
     </div>`;
 
-  document.getElementById('glDeptFilter').addEventListener('change', e => render(e.target.value));
+  const getFilters = () => ({
+    dept: document.getElementById('glDeptFilter').value,
+    cls:  document.getElementById('glClsFilter').value,
+  });
+  document.getElementById('glDeptFilter').addEventListener('change', () => { const f = getFilters(); render(f.dept, f.cls); });
+  document.getElementById('glClsFilter').addEventListener('change',  () => { const f = getFilters(); render(f.dept, f.cls); });
 
-  render('all');
+  render('all', 'all');
 
   document.getElementById('glFootnote').textContent =
     'YTD actuals from mrp_financials (ACCOUNT_NBR). RoY forecast from mrp_forecast Live Model (ACCOUNT_CODE). ' +
