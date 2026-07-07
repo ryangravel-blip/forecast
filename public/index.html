@@ -1518,9 +1518,9 @@ async function init() {
   await waitForCowork();
   document.getElementById('loadingMsg').textContent = 'Loading FY27 data…';
   try {
+    // Phase 1: core queries (13) — run concurrently
     const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
-           histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
-           glActRows, glLiveRows, glHistRows] = await Promise.all([
+           histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -1534,9 +1534,6 @@ async function init() {
       execSQL(Q_HIST_CASH),
       execSQL(Q_MONTHLY_ACTUALS_DEPT),
       execSQL(Q_MONTHLY_LIVE_DEPT),
-      execSQL(Q_GL_ACTUALS),
-      execSQL(Q_GL_LIVE),
-      execSQL(Q_GL_HIST)
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -1548,7 +1545,6 @@ async function init() {
     const cash   = processCash(cashRows);
     const hist   = processHistorical(histPLRows, histARRRows, histCashRows);
 
-    // Build monthly rev/exp lookup for quarterly view
     const monthlyRevRows = [
       ...maRows.map(r => ({ dt: r.DT.slice(0,10), rev: +(r.REVENUE||0), exp: +(r.EXPENSE||0), src: 'actual' })),
       ...mlRows.map(r => ({ dt: r.DT.slice(0,10), rev: +(r.REVENUE||0), exp: +(r.EXPENSE||0), src: 'model' }))
@@ -1562,7 +1558,6 @@ async function init() {
     buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist);
-    buildGLDetail(glActRows, glLiveRows, glHistRows);
 
     const now = new Date();
     document.getElementById('asOfBadge').textContent =
@@ -1576,12 +1571,26 @@ async function init() {
     const banner = document.getElementById('errorBanner');
     banner.style.display = 'block';
     banner.textContent = 'Error loading data: ' + err.message;
-    ['execBody','deptBody','qtrDeptBody','qtrBody','bridgeBody','glBody'].forEach(id => {
+    ['execBody','deptBody','qtrDeptBody','qtrBody','bridgeBody'].forEach(id => {
       document.getElementById(id).innerHTML =
         `<tr><td class="label-col" colspan="8" style="color:#991b1b;padding:20px">Failed to load — see error above.</td></tr>`;
     });
   } finally {
     document.getElementById('loadingOverlay').style.display = 'none';
+  }
+
+  // Phase 2: GL Detail queries — sequential, isolated so they don’t block core tabs
+  try {
+    document.getElementById('glBody').innerHTML =
+      '<tr><td colspan="9" style="padding:20px;color:#9ba3af;text-align:center">Loading GL detail…</td></tr>';
+    const glActRows  = await execSQL(Q_GL_ACTUALS);
+    const glLiveRows = await execSQL(Q_GL_LIVE);
+    const glHistRows = await execSQL(Q_GL_HIST);
+    buildGLDetail(glActRows, glLiveRows, glHistRows);
+  } catch (glErr) {
+    document.getElementById('glBody').innerHTML =
+      `<tr><td colspan="9" style="padding:20px;color:#991b1b;text-align:center">GL Detail failed: ${glErr.message}</td></tr>`;
+    document.getElementById('glFoot').innerHTML = '';
   }
 }
 
