@@ -7,31 +7,24 @@ let _conn = null;
 
 function getPrivateKeyPem(raw) {
   const pem = raw.replace(/\\n/g, '\n').trim();
-
   if (!pem.startsWith('-----BEGIN')) {
     throw new Error('SNOWFLAKE_PRIVATE_KEY does not look like a PEM — check the env var value');
   }
-
   const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE || undefined;
-
   let keyObj;
   try {
     keyObj = crypto.createPrivateKey({ key: pem, ...(passphrase ? { passphrase } : {}) });
   } catch (e) {
     throw new Error('Failed to parse private key: ' + e.message);
   }
-
   return keyObj.export({ type: 'pkcs8', format: 'pem' });
 }
 
 function connect() {
   if (_conn) return Promise.resolve(_conn);
-
   const rawKey = process.env.SNOWFLAKE_PRIVATE_KEY || '';
   if (!rawKey) throw new Error('SNOWFLAKE_PRIVATE_KEY env var is not set');
-
   const privateKey = getPrivateKeyPem(rawKey);
-
   const conn = snowflake.createConnection({
     account:       process.env.SNOWFLAKE_ACCOUNT,
     username:      process.env.SNOWFLAKE_USERNAME,
@@ -41,7 +34,6 @@ function connect() {
     role:          process.env.SNOWFLAKE_ROLE,
     application:   'mrp-reports',
   });
-
   return new Promise((resolve, reject) => {
     conn.connect((err, c) => {
       if (err) { reject(err); return; }
@@ -51,7 +43,6 @@ function connect() {
   });
 }
 
-// Use streamResult to avoid paginated-result NOT_FOUND errors in serverless environments
 function runQuery(conn, sql) {
   return new Promise((resolve, reject) => {
     conn.execute({
@@ -84,13 +75,16 @@ module.exports = async (req, res) => {
     return res.status(403).json({ error: 'Only SELECT queries permitted' });
   }
 
+  // Short identifier for logs / error responses — first line of SQL, up to 100 chars
+  const sqlLabel = sql.trim().split('\n').slice(0, 2).join(' ').replace(/\s+/g, ' ').slice(0, 100);
+
   try {
     const conn = await connect();
     const rows  = await runQuery(conn, sql);
     res.status(200).json({ rows: rows ?? [] });
   } catch (err) {
     _conn = null;
-    console.error('Snowflake error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error(`Snowflake error [${sqlLabel}]:`, err.message);
+    res.status(500).json({ error: err.message, query: sqlLabel });
   }
 };
