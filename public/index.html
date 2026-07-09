@@ -1106,6 +1106,15 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
       const ytdDisplay = ytdAll[r.acct] != null ? KD(ytd/1e3) : '—';
       const royDisplay = royAll[r.acct] != null ? KD(roy/1e3) : '—';
 
+      const fy26Ye = (hist['FY26_YTD']||0) + (hist['FY26_ROY']||0);
+      const pctVar = fy26Ye && Math.abs(fy26Ye) > 500
+        ? ((ye - fy26Ye) / Math.abs(fy26Ye) * 100)
+        : null;
+      const pctDisplay = pctVar === null ? '—'
+        : (pctVar >= 0 ? '+' : '') + pctVar.toFixed(1) + '%';
+      const pctColor = pctVar === null ? '#9ca3af'
+        : pctVar >= 0 ? '#16a34a' : '#dc2626';
+
       h += `<tr>
         <td class="label-col" style="font-size:12px">${acctLabel} ${typeTag}</td>
         <td style="font-size:11px;color:#6b7280;padding:5px 8px;white-space:nowrap">${r.cls}</td>
@@ -1116,11 +1125,24 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
         <td style="text-align:right;padding:6px 10px;background:${bgRatioMd};font-size:11.5px;color:#6b7280">${fy25R}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgRatioLt};font-size:11.5px;color:#6b7280">${fy24R}</td>
         <td style="text-align:right;padding:6px 10px;background:${bgYe};font-weight:600">${KD(ye/1e3)}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgYe};color:#6b7280">${fy26Ye ? KD(fy26Ye/1e3) : '—'}</td>
+        <td style="text-align:right;padding:6px 10px;background:${bgYe};font-size:11.5px;color:${pctColor};font-weight:600">${pctDisplay}</td>
       </tr>`;
     }
 
     document.getElementById('glBody').innerHTML = h ||
-      '<tr><td colspan="9" style="padding:20px;color:#9ba3af;text-align:center">No accounts for this department</td></tr>';
+      '<tr><td colspan="11" style="padding:20px;color:#9ba3af;text-align:center">No accounts for this department</td></tr>';
+
+    const totYe   = totYtd + totRoy;
+    const totFy26 = rows.reduce((s,r2) => {
+      const h2 = filterDept === 'all' ? r2.hist : (histD[`${filterDept}|||${r2.acct}`] || {});
+      return s + (h2['FY26_YTD']||0) + (h2['FY26_ROY']||0);
+    }, 0);
+    const totPct  = totFy26 && Math.abs(totFy26) > 500
+      ? ((totYe - totFy26) / Math.abs(totFy26) * 100) : null;
+    const totPctDisplay = totPct === null ? '—'
+      : (totPct >= 0 ? '+' : '') + totPct.toFixed(1) + '%';
+    const totPctColor = totPct === null ? '#9ca3af' : totPct >= 0 ? '#16a34a' : '#dc2626';
 
     document.getElementById('glFoot').innerHTML = `
       <tr style="border-top:2px solid #334155">
@@ -1129,7 +1151,9 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
         <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYtd}">${KD(totYtd/1e3)}</td>
         <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgRoy}">${KD(totRoy/1e3)}</td>
         <td colspan="4"></td>
-        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe}">${KD((totYtd+totRoy)/1e3)}</td>
+        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe}">${KD(totYe/1e3)}</td>
+        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe};color:#6b7280">${totFy26 ? KD(totFy26/1e3) : '—'}</td>
+        <td style="text-align:right;padding:7px 10px;font-weight:700;background:${bgYe};color:${totPctColor}">${totPctDisplay}</td>
       </tr>`;
 
     document.getElementById('glRowCount').textContent = `${rows.length} accounts`;
@@ -1142,7 +1166,7 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
       <th style="background:#1e293b"></th>
       <th colspan="2" style="background:#3b5180;color:#e2e8f0;text-align:center;padding:6px">FY27 Actuals + Forecast</th>
       <th colspan="4" style="background:#4b5563;color:#f3f4f6;text-align:center;padding:6px">RoY / YTD Multiple</th>
-      <th style="background:#2d3748;color:#e2e8f0;text-align:center;padding:6px">YE Total</th>
+      <th colspan="3" style="background:#2d3748;color:#e2e8f0;text-align:center;padding:6px">YE Total</th>
     </tr>
     <tr class="col-header">
       <th class="label-col" style="min-width:260px">GL Account</th>
@@ -1153,7 +1177,9 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
       <th style="text-align:right;background:${bgRatioDk};color:#6b7280;font-size:10px;white-space:nowrap">FY26 Actual</th>
       <th style="text-align:right;background:${bgRatioMd};color:#6b7280;font-size:10px;white-space:nowrap">FY25 Actual</th>
       <th style="text-align:right;background:${bgRatioLt};color:#6b7280;font-size:10px;white-space:nowrap">FY24 Actual</th>
-      <th style="text-align:right;background:${bgYe};font-weight:700;font-size:10px;white-space:nowrap">FY27 YE Total</th>
+      <th style="text-align:right;background:${bgYe};font-weight:700;font-size:10px;white-space:nowrap">FY27 YE</th>
+      <th style="text-align:right;background:${bgYe};color:#6b7280;font-size:10px;white-space:nowrap">FY26 YE</th>
+      <th style="text-align:right;background:${bgYe};font-size:10px;white-space:nowrap">vs FY26</th>
     </tr>`;
 
   // ── Filter ───────────────────────────────────────────
