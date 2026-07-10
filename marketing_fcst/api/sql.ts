@@ -35,7 +35,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const expectedKey = process.env.DASHBOARD_API_KEY;
   const providedKey = req.headers['x-dashboard-key'];
   if (!expectedKey || providedKey !== expectedKey) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    // TEMPORARY diagnostic (2026-07-09): reveals only whether the env var is set and
+    // its length, never the actual value, to help debug a persistent "Unauthorized"
+    // report without exposing the secret. Remove once resolved.
+    return res.status(401).json({
+      error: 'Unauthorized',
+      debug: {
+        envVarSet: !!expectedKey,
+        envVarLength: expectedKey ? expectedKey.length : 0,
+        headerReceived: !!providedKey,
+        headerLength: providedKey ? String(providedKey).length : 0,
+      },
+    });
   }
 
   const { sql } = req.body ?? {};
