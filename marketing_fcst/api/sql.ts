@@ -32,21 +32,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // the URL. DASHBOARD_API_KEY is set as a Vercel env var; requests must echo it back
   // in the X-Dashboard-Key header (see execSQL() in index.html). Fails closed — if the
   // env var isn't set, every request is rejected rather than silently allowed.
-  const expectedKey = process.env.DASHBOARD_API_KEY;
-  const providedKey = req.headers['x-dashboard-key'];
+  // .trim() guards against a stray trailing space/newline picked up when pasting the
+  // value into Vercel's env var UI — otherwise a strict string comparison silently fails.
+  const expectedKey = (process.env.DASHBOARD_API_KEY ?? '').trim();
+  const providedKey = String(req.headers['x-dashboard-key'] ?? '').trim();
   if (!expectedKey || providedKey !== expectedKey) {
-    // TEMPORARY diagnostic (2026-07-09): reveals only whether the env var is set and
-    // its length, never the actual value, to help debug a persistent "Unauthorized"
-    // report without exposing the secret. Remove once resolved.
-    return res.status(401).json({
-      error: 'Unauthorized',
-      debug: {
-        envVarSet: !!expectedKey,
-        envVarLength: expectedKey ? expectedKey.length : 0,
-        headerReceived: !!providedKey,
-        headerLength: providedKey ? String(providedKey).length : 0,
-      },
-    });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const { sql } = req.body ?? {};
