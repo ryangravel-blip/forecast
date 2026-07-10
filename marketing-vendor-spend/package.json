@@ -1,0 +1,13 @@
+{
+  "name": "marketing-vendor-spend",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.5",
+    "@vercel/node": "^3.0.0",
+    "typescript": "^5.2.0"
+  }
+}
