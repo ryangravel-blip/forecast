@@ -23,9 +23,20 @@ function buildJWT(account: string, username: string, privateKeyPem: string): str
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Dashboard-Key');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Shared-secret gate: this endpoint runs arbitrary SQL against Snowflake using the
+  // app's own service credentials, so it must not be callable by anyone who just finds
+  // the URL. DASHBOARD_API_KEY is set as a Vercel env var; requests must echo it back
+  // in the X-Dashboard-Key header (see execSQL() in index.html). Fails closed — if the
+  // env var isn't set, every request is rejected rather than silently allowed.
+  const expectedKey = process.env.DASHBOARD_API_KEY;
+  const providedKey = req.headers['x-dashboard-key'];
+  if (!expectedKey || providedKey !== expectedKey) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   const { sql } = req.body ?? {};
   if (!sql) return res.status(400).json({ error: 'Missing sql' });
