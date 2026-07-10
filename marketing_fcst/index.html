@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
 <title>Marketing Vendor Spend — Live</title>
 <style>
 :root { color-scheme: light; }
@@ -108,11 +109,17 @@ const Pct = (v,d=1) => { if(v==null||isNaN(v))return '—'; return (v*100).toFix
 // ─── SQL EXECUTION (Cowork mode, falls back to Vercel /api/sql) ──
 const USE_COWORK = () => !!window.cowork?.callMcpTool;
 
+// Shared-secret sent to /api/sql — must match the DASHBOARD_API_KEY env var set in
+// Vercel. This is a deterrent, not real authentication: it lives in this page's source,
+// so anyone who views source can extract it. Raises the bar above a fully open proxy;
+// for real access control use Vercel Deployment Protection (password/SSO) at the project level.
+const DASHBOARD_API_KEY = '81230abdf96a7de1dfe84165d28fea3c821b3318ad15d4be';
+
 async function execSQL(sql) {
   if (!USE_COWORK()) {
     const res = await fetch('/api/sql', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Dashboard-Key': DASHBOARD_API_KEY },
       body: JSON.stringify({ sql })
     });
     if (!res.ok) throw new Error('SQL error: ' + (await res.text()).slice(0, 200));
@@ -274,7 +281,7 @@ const CATEGORY_GROUPS = {
     'AMAZON.COM (AMZN MKTP)', 'Adweek, LLC', 'Amanda Doan', 'Emily Norviel', 'Emma Caneva', 'Julia Wookey',
     'Brett Newcome', 'Moo.com', 'Sendoso', 'Sparks Exhibits and Environments', 'Nomo Soho', 'Lally Events, Inc.',
     'Pyramid Displays', 'Shoptalk Commerce LLC', '42 Analytics Educational Inc', 'Sender inc', 'IQPC',
-    'Lally Events', 'Rainfocus',
+    'Lally Events', 'Rainfocus', 'Terrapinn', 'Bloomreach', 'DBX EMEA',
   ],
   'Digital Demand & Paid Media': [
     'Google Adwords', 'GoTo', 'Industry Dive', 'Influ2', 'LinkedIn', 'Product Marketing Spend VC',
@@ -444,6 +451,24 @@ function mergePrepaidGapAdditions(byVendorMonth) {
   }
 }
 
+// Manually added by Ryan on 2026-07-08: two Field Marketing event contracts (signed,
+// filed in the vendor contracts folder) that aren't in MARKETING_FORECAST_FILE or any
+// live Snowflake source. Added directly so they don't go missing from the forecast.
+const MANUAL_CONTRACT_ADDITIONS = {
+  'Terrapinn': { '2026-10-31': 54178 },
+  'Bloomreach': { '2026-06-30': 2770.10 },
+  'DBX EMEA': { '2026-11-30': 40000, '2026-12-31': 35000 },
+};
+
+function mergeManualContractAdditions(byVendorMonth) {
+  for (const [vendor, months] of Object.entries(MANUAL_CONTRACT_ADDITIONS)) {
+    for (const [dt, amt] of Object.entries(months)) {
+      if (!byVendorMonth[vendor]) byVendorMonth[vendor] = {};
+      byVendorMonth[vendor][dt] = (byVendorMonth[vendor][dt] || 0) + amt;
+    }
+  }
+}
+
 // Planned discretionary spend reduction, entered by Ryan on 2026-07-06: -$83,333/mo
 // Aug-26 through Jan-27. Not a vendor — a target/plan line that reduces the Non-HC
 // total. Kept out of category grouping and rendered as its own row just above the
@@ -495,6 +520,7 @@ function preProcessVendorExp(actRows) {
   for (const r of actRows) add(parseDate(r.MONTH_END_DT), r.VENDOR || '', r.ACCOUNT_NAME || '', +(r.AMT || 0));
   mergeForecastFile(byVendorMonth);
   mergePrepaidGapAdditions(byVendorMonth);
+  mergeManualContractAdditions(byVendorMonth);
   mergeExpenseReduction(byVendorMonth);
 
   const monthly = (v, dt) => (byVendorMonth[v] && byVendorMonth[v][dt]) || 0;
