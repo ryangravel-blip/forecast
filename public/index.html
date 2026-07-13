@@ -118,7 +118,7 @@
         Executive Summary — FY27 Full Year
         <div style="display:flex;gap:6px">
           <span class="badge badge-budget">Budget: FY27 BoD Approved</span>
-          <span class="badge badge-forecast">Forecast: Actuals Feb–May + Live Model Jun–Jan</span>
+          <span class="badge badge-forecast">Forecast: Actuals Feb–Jun + Live Model Jul–Jan</span>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -177,8 +177,8 @@
       <div class="table-title">
         Forecast Bridge — YTD Actuals · RoY Forecast · Historical Context
         <div style="display:flex;gap:6px;align-items:center">
-          <span class="badge" style="background:#fef3c7;color:#92400e">YTD = Actuals Feb–May</span>
-          <span class="badge badge-forecast">RoY = Live Model Jun–Jan</span>
+          <span class="badge" style="background:#fef3c7;color:#92400e">YTD = Actuals Feb–Jun</span>
+          <span class="badge badge-forecast">RoY = Live Model Jul–Jan</span>
           <span class="badge" style="background:#f1f5f9;color:#475569">Historical RoY/YTD for FY24–FY26</span>
         </div>
       </div>
@@ -198,8 +198,8 @@
       <div class="table-title">
         GL Account Detail — FY27
         <div style="display:flex;gap:6px;align-items:center">
-          <span class="badge" style="background:#fef3c7;color:#92400e">YTD = Actuals Feb–May</span>
-          <span class="badge badge-forecast">RoY = Live Model Jun–Jan</span>
+          <span class="badge" style="background:#fef3c7;color:#92400e">YTD = Actuals Feb–Jun</span>
+          <span class="badge badge-forecast">RoY = Live Model Jul–Jan</span>
         </div>
       </div>
       <div id="glFilter" style="padding:0 4px 4px"></div>
@@ -221,7 +221,7 @@
         P&amp;L by Department — FY27 Full Year
         <div style="display:flex;gap:6px">
           <span class="badge badge-budget">Budget: FY27 BoD Approved</span>
-          <span class="badge badge-forecast">Forecast: Actuals Feb–May + Live Model Jun–Jan</span>
+          <span class="badge badge-forecast">Forecast: Actuals Feb–Jun + Live Model Jul–Jan</span>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -295,18 +295,18 @@ const Q_BUDGET = `
     AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31'
   GROUP BY C_REVENUE, C_PARENT_DEPT, C_PL_CLASS, C_EXPENSE_CATEGORY, ACCOUNT_CODE`;
 
-// Actuals: Feb–May 2026, mrp_financials
+// Actuals: Feb–Jun 2026, mrp_financials
 const Q_ACTUALS = `
   SELECT ACCOUNT_TYPE, COALESCE(C_REVENUE,'') AS C_REVENUE, COALESCE(C_PARENT_DEPT,'') AS C_PARENT_DEPT,
     COALESCE(C_PL_CLASS,'') AS C_PL_CLASS, COALESCE(C_EXPENSE_CATEGORY,'') AS C_EXPENSE_CATEGORY,
     CASE WHEN C_REVENUE='Services Revenue' THEN COALESCE(ACCOUNT_NBR,'') ELSE '' END AS ACCOUNT_NBR,
     SUM(AMT) AS AMT
   FROM load.finance_sandbox.mrp_financials
-  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31' AND C_PL_INCLUDE = TRUE
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30' AND C_PL_INCLUDE = TRUE
   GROUP BY ACCOUNT_TYPE, C_REVENUE, C_PARENT_DEPT, C_PL_CLASS, C_EXPENSE_CATEGORY,
     CASE WHEN C_REVENUE='Services Revenue' THEN COALESCE(ACCOUNT_NBR,'') ELSE '' END`;
 
-// Live Model: Jun 2026–Jan 2027, P&L lines
+// Live Model: Jul 2026–Jan 2027, P&L lines
 const Q_LIVE_MODEL = `
   SELECT COALESCE(C_REVENUE,'') AS C_REVENUE, COALESCE(C_PARENT_DEPT,'') AS C_PARENT_DEPT,
     COALESCE(C_PL_CLASS,'') AS C_PL_CLASS, COALESCE(C_EXPENSE_CATEGORY,'') AS C_EXPENSE_CATEGORY,
@@ -315,18 +315,18 @@ const Q_LIVE_MODEL = `
   WHERE VERSION_NAME = 'Live Model'
     AND C_PL_INCLUDE = 1
     AND ((C_REVENUE IS NOT NULL AND C_REVENUE != '') OR (C_PARENT_DEPT IS NOT NULL AND C_PARENT_DEPT != ''))
-    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+    AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
   GROUP BY C_REVENUE, C_PARENT_DEPT, C_PL_CLASS, C_EXPENSE_CATEGORY, ACCOUNT_CODE`;
 
-// ARR actuals: Feb–May 2026 from customer_month
+// ARR actuals: Feb–Jun 2026 from customer_month
 const Q_ARR = `
   SELECT MONTH_END_DT, SUM(C_ARR) AS C_ARR, SUM(NEW_ARR) AS NEW_ARR,
     SUM(EXPANSION_ARR) AS EXP_ARR, SUM(CHURN_ARR) AS CHURN_ARR
   FROM prod.dealsbase.customer_month
-  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31'
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
   GROUP BY MONTH_END_DT ORDER BY MONTH_END_DT`;
 
-// KPI: budget uses full FY27 (Feb–Jan); Live Model only Jun–Jan so Feb–May always come from actuals
+// KPI: budget uses full FY27 (Feb–Jan); Live Model only Jul–Jan so Feb–Jun always come from actuals
 const Q_KPI = `
   SELECT VERSION_NAME, TIME_MONTH_END, ACCOUNT_CODE, SUM(VALUE) AS AMOUNT
   FROM load.finance_sandbox.mrp_forecast
@@ -337,7 +337,7 @@ const Q_KPI = `
         AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31')
       OR
       (VERSION_NAME = 'Live Model'
-        AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31')
+        AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31')
     )
   GROUP BY VERSION_NAME, TIME_MONTH_END, ACCOUNT_CODE
   ORDER BY VERSION_NAME, ACCOUNT_CODE, TIME_MONTH_END`;
@@ -346,21 +346,21 @@ const Q_KPI = `
 const Q_CASH = `
   SELECT MONTH_END_DATE, SUM(ENDING_BALANCE) AS BALANCE
   FROM load.finance_sandbox.mrp_cash
-  WHERE MONTH_END_DATE BETWEEN '2026-01-31' AND '2026-05-31'
+  WHERE MONTH_END_DATE BETWEEN '2026-01-31' AND '2026-06-30'
     AND ACCOUNT_CATEGORY IN ('Cash', 'Equity')
   GROUP BY MONTH_END_DATE
   ORDER BY MONTH_END_DATE`;
 
-// Monthly actuals revenue + expense (Feb–May) for quarterly view
+// Monthly actuals revenue + expense (Feb–Jun) for quarterly view
 const Q_MONTHLY_ACTUALS = `
   SELECT MONTH_END_DT AS DT,
     SUM(CASE WHEN ACCOUNT_TYPE='Income' THEN -AMT ELSE 0 END) AS REVENUE,
     SUM(CASE WHEN ACCOUNT_TYPE='Expense' THEN AMT ELSE 0 END) AS EXPENSE
   FROM load.finance_sandbox.mrp_financials
-  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31' AND C_PL_INCLUDE = TRUE
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30' AND C_PL_INCLUDE = TRUE
   GROUP BY MONTH_END_DT ORDER BY MONTH_END_DT`;
 
-// Monthly live model revenue + expense (Jun–Jan) for quarterly view
+// Monthly live model revenue + expense (Jul–Jan) for quarterly view
 const Q_MONTHLY_LIVE = `
   SELECT TIME_MONTH_END AS DT,
     SUM(CASE WHEN COALESCE(C_REVENUE,'') != '' THEN VALUE ELSE 0 END) AS REVENUE,
@@ -369,26 +369,26 @@ const Q_MONTHLY_LIVE = `
   WHERE VERSION_NAME = 'Live Model'
     AND C_PL_INCLUDE = 1
     AND ((C_REVENUE IS NOT NULL AND C_REVENUE != '') OR (C_PARENT_DEPT IS NOT NULL AND C_PARENT_DEPT != ''))
-    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+    AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
   GROUP BY TIME_MONTH_END ORDER BY TIME_MONTH_END`;
 
-// Monthly actuals by dept + class (Feb–May) for quarterly dept view
+// Monthly actuals by dept + class (Feb–Jun) for quarterly dept view
 const Q_MONTHLY_ACTUALS_DEPT = `
   SELECT MONTH_END_DT AS DT, COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
     SUM(CASE WHEN ACCOUNT_TYPE='Expense' THEN AMT ELSE 0 END) AS EXPENSE
   FROM load.finance_sandbox.mrp_financials
-  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31'
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
     AND C_PL_INCLUDE = TRUE AND COALESCE(C_PARENT_DEPT,'') != ''
   GROUP BY MONTH_END_DT, C_PARENT_DEPT, C_PL_CLASS ORDER BY MONTH_END_DT`;
 
-// Monthly live model by dept + class (Jun–Jan) for quarterly dept view
+// Monthly live model by dept + class (Jul–Jan) for quarterly dept view
 const Q_MONTHLY_LIVE_DEPT = `
   SELECT TIME_MONTH_END AS DT, COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
     SUM(VALUE) AS EXPENSE
   FROM load.finance_sandbox.mrp_forecast
   WHERE VERSION_NAME = 'Live Model' AND C_PL_INCLUDE = 1
     AND COALESCE(C_PARENT_DEPT,'') != ''
-    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+    AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
   GROUP BY TIME_MONTH_END, C_PARENT_DEPT, C_PL_CLASS ORDER BY TIME_MONTH_END`;
 
 // GL actuals: YTD by account, dept, class
@@ -397,7 +397,7 @@ const Q_GL_ACTUALS = `
     COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
     ACCOUNT_TYPE, SUM(AMT) AS AMT
   FROM load.finance_sandbox.mrp_financials
-  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-05-31' AND C_PL_INCLUDE = TRUE
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30' AND C_PL_INCLUDE = TRUE
   GROUP BY ACCOUNT_NBR, ACCOUNT_NAME, C_PARENT_DEPT, C_PL_CLASS, ACCOUNT_TYPE
   ORDER BY C_PARENT_DEPT, ACCOUNT_NBR`;
 
@@ -407,7 +407,7 @@ const Q_GL_LIVE = `
     COALESCE(C_REVENUE,'') AS C_REVENUE, COALESCE(C_PL_CLASS,'') AS CLS, SUM(VALUE) AS AMOUNT
   FROM load.finance_sandbox.mrp_forecast
   WHERE VERSION_NAME = 'Live Model'
-    AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+    AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
     AND C_PL_INCLUDE = 1
     AND (COALESCE(C_PARENT_DEPT,'') != '' OR COALESCE(C_REVENUE,'') != '')
   GROUP BY ACCOUNT_CODE, C_PARENT_DEPT, C_REVENUE, C_PL_CLASS
@@ -608,7 +608,7 @@ function processARR(rows) {
 function processCash(rows) {
   const monthly={};
   for (const r of rows) monthly[r.MONTH_END_DATE.slice(0,10)]=+(r.BALANCE||0);
-  return { bop: monthly['2026-01-31']||0, latest: monthly['2026-05-31']||0, monthly };
+  return { bop: monthly['2026-01-31']||0, latest: monthly['2026-06-30']||0, monthly };
 }
 
 // ─── TABLE HELPERS ────────────────────────────────────
@@ -684,9 +684,9 @@ function buildExec(bud, fcst, arr, kpi, cash) {
   const budEbitda    = budRevTotal  - budExpTotal;
   const fcstEbitda   = fcstRevTotal - fcstExpTotal;
 
-  // ARR: actuals Feb–May + Live Model Jun–Jan
+  // ARR: actuals Feb–Jun + Live Model Jul–Jan
   const FY_START='2026-02-01', FY_END='2027-01-31';
-  const ACT_END='2026-05-31', LM_START='2026-06-01';
+  const ACT_END='2026-06-30', LM_START='2026-07-01';
   const JAN27='2027-01-31';
 
   const budNewArr    = kpi.budFlow('KPI.NewARR',       FY_START, FY_END);
@@ -694,7 +694,7 @@ function buildExec(bud, fcst, arr, kpi, cash) {
   const budChurn     = kpi.budFlow('KPI.Downsell_Churn',FY_START,FY_END);
   const budEopArr    = kpi.budEop('KPI.Exiting_ARR',   JAN27);
 
-  // Forecast ARR = actuals (Feb–May) + Live Model (Jun–Jan)
+  // Forecast ARR = actuals (Feb–Jun) + Live Model (Jul–Jan)
   const fcstNewArr   = arr.newArr + kpi.liveFlow('KPI.NewARR',       LM_START, FY_END);
   const fcstExpArr   = arr.expArr + kpi.liveFlow('KPI.ExpansionARR', LM_START, FY_END);
   const fcstChurn    = arr.churn  + kpi.liveFlow('KPI.Downsell_Churn',LM_START,FY_END);
@@ -702,7 +702,7 @@ function buildExec(bud, fcst, arr, kpi, cash) {
 
   // Cash Burn FY27: total change in cash
   // Budget: SUM of Adjusted_CF over FY27 from BoD
-  // Forecast: actual burn Feb–May (May balance - Jan balance, Cash+Equity) + Live Model Adjusted_CF Jun–Jan
+  // Forecast: actual burn Feb–Jun (Jun balance - Jan balance, Cash+Equity) + Live Model Adjusted_CF Jul–Jan
   const budCashBurn  = kpi.budFlow('Adjusted_CF', FY_START, FY_END);
   const actCashBurn  = cash.latest - cash.bop;
   const fcstCashBurn = actCashBurn + kpi.liveFlow('Adjusted_CF', LM_START, FY_END);
@@ -848,7 +848,7 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
   // Prev-month lookup for actual cash burn calculation
   const PREV_DT = {
     '2026-02-28':'2026-01-31','2026-03-31':'2026-02-28','2026-04-30':'2026-03-31',
-    '2026-05-31':'2026-04-30','2026-06-30':'2026-05-31'
+    '2026-05-31':'2026-04-30','2026-06-30':'2026-05-31','2026-07-31':'2026-06-30'
   };
 
   function qCF(q) {
@@ -963,7 +963,7 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
   document.getElementById('qtrHead').innerHTML = head;
   document.getElementById('qtrBody').innerHTML = h;
   document.getElementById('qtrFootnote').textContent =
-    'Q1 Revenue & Expense = actuals (mrp_financials). Q2–Q4 = Live Model (mrp_forecast). Q1 ARR = actuals (customer_month); Q2–Q4 ARR blends May actuals + Live Model. Cash Burn (Feb–May) = actual month-over-month change in Cash + Equity (mrp_cash); Jun–Jan = Live Model Adjusted_CF.';
+    'Q1 Revenue & Expense = actuals (mrp_financials). Q2–Q4 = Live Model (mrp_forecast). Q1 ARR = actuals (customer_month); Q2–Q4 ARR blends Jun actuals + Live Model. Cash Burn (Feb–May) = actual month-over-month change in Cash + Equity (mrp_cash); Jun–Jan = Live Model Adjusted_CF.';
 }
 
 // ─── BUILD GL DETAIL ─────────────────────────────────
@@ -1171,8 +1171,8 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
     <tr class="col-header">
       <th class="label-col" style="min-width:260px">GL Account</th>
       <th style="min-width:130px;color:#6b7280;font-size:10.5px">Class</th>
-      <th style="text-align:right;background:${bgYtd};color:#374151;font-size:10px;white-space:nowrap">YTD (Feb–May '26)</th>
-      <th style="text-align:right;background:${bgRoy};color:#374151;font-size:10px;white-space:nowrap">RoY Fcst (Jun–Jan '27)</th>
+      <th style="text-align:right;background:${bgYtd};color:#374151;font-size:10px;white-space:nowrap">YTD (Feb–Jun '26)</th>
+      <th style="text-align:right;background:${bgRoy};color:#374151;font-size:10px;white-space:nowrap">RoY Fcst (Jul–Jan '27)</th>
       <th style="text-align:right;background:${bgRatioCur};color:#6b7280;font-size:10px;white-space:nowrap">FY27 Fcst</th>
       <th style="text-align:right;background:${bgRatioDk};color:#6b7280;font-size:10px;white-space:nowrap">FY26 Actual</th>
       <th style="text-align:right;background:${bgRatioMd};color:#6b7280;font-size:10px;white-space:nowrap">FY25 Actual</th>
@@ -1335,7 +1335,7 @@ function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
   document.getElementById('qtrDeptHead').innerHTML = head;
   document.getElementById('qtrDeptBody').innerHTML = h;
   document.getElementById('qtrDeptFootnote').textContent =
-    'Q1 (Feb–Apr) and May = mrp_financials actuals. Jun onwards = Live Model (mrp_forecast). ' +
+    'Q1 (Feb–Apr), May and Jun = mrp_financials actuals. Jul onwards = Live Model (mrp_forecast). ' +
     'Overhead folded into Non-HC Costs in the summary rows.';
 }
 
@@ -1377,9 +1377,9 @@ function processHistorical(histPLRows, histARRRows, histCashRows) {
 
 // ─── BUILD FORECAST BRIDGE ────────────────────────────
 function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
-  const LM_START='2026-06-01', FY_END='2027-01-31', JAN27='2027-01-31';
+  const LM_START='2026-07-01', FY_END='2027-01-31', JAN27='2027-01-31';
 
-  // ── FY27 YTD (Feb–May actuals) ──────────────────────
+  // ── FY27 YTD (Feb–Jun actuals) ──────────────────────
   const ytdRev    = ytdAcc.revTotal();
   const ytdExp    = ytdAcc.expAllDepts();
   const ytdExpHC  = ytdAcc.expHCAllDepts();
@@ -1390,9 +1390,9 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
   const ytdExpArr = arr.expArr;
   const ytdChurn  = arr.churn;
   const ytdEopArr = arr.eopArr;
-  const ytdHC     = kpi.budEop('Total_HC_EOM','2026-05-31');
+  const ytdHC     = kpi.budEop('Total_HC_EOM','2026-06-30');
 
-  // ── FY27 RoY (Jun–Jan Live Model) ───────────────────
+  // ── FY27 RoY (Jul–Jan Live Model) ───────────────────
   const royRev    = royAcc.revTotal();
   const royExp    = royAcc.expAllDepts();
   const royExpHC  = royAcc.expHCAllDepts();
@@ -1496,8 +1496,8 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
     </tr>
     <tr class="col-header">
       <th class="label-col" style="background:#f8fafc;color:#6b7280;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Metric ($K)</th>
-      <th style="background:${bgYTD};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">YTD (Feb–May '26)</th>
-      <th style="background:${bgROY};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">RoY Fcst (Jun–Jan '27)</th>
+      <th style="background:${bgYTD};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">YTD (Feb–Jun '26)</th>
+      <th style="background:${bgROY};color:#374151;font-size:10px;font-weight:600;white-space:nowrap">RoY Fcst (Jul–Jan '27)</th>
       <th style="background:${bgRatio};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY27 Fcst</th>
       <th style="background:${bgHistDk};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY26 Actual</th>
       <th style="background:${bgHistMd};color:#6b7280;font-size:10px;font-weight:500;white-space:nowrap">FY25 Actual</th>
@@ -1589,7 +1589,7 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
   document.getElementById('bridgeHead').innerHTML = head;
   document.getElementById('bridgeBody').innerHTML = h;
   document.getElementById('bridgeFootnote').textContent =
-    'YTD = Feb–May 2026 actuals (mrp_financials + customer_month). RoY = Jun 2026–Jan 2027 Live Model. ' +
+    'YTD = Feb–Jun 2026 actuals (mrp_financials + customer_month). RoY = Jul 2026–Jan 2027 Live Model. ' +
     'RoY/YTD multiples show how much more activity falls in the back 8 months vs. front 4 months of the fiscal year. ' +
     'P&L history available FY24–FY26 (mrp_financials). ARR & Cash history available FY24–FY26. ' +
     'Cash Burn = change in Cash + Equity balance (mrp_cash). HC EOP = Jan 2027 Live Model; YTD HC = Budget proxy.';
@@ -1654,7 +1654,7 @@ async function init() {
     document.getElementById('asOfBadge').textContent =
       'As of ' + now.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
-    const fn = `Budget: ${budRows.length.toLocaleString()} rows · Actuals: ${actualsRows.length.toLocaleString()} rows (Feb–May) · Live Model: ${liveRows.length.toLocaleString()} rows (Jun–Jan) · FY27 = Feb 2026 – Jan 2027`;
+    const fn = `Budget: ${budRows.length.toLocaleString()} rows · Actuals: ${actualsRows.length.toLocaleString()} rows (Feb–Jun) · Live Model: ${liveRows.length.toLocaleString()} rows (Jul–Jan) · FY27 = Feb 2026 – Jan 2027`;
     document.getElementById('execFootnote').textContent = fn;
     document.getElementById('deptFootnote').textContent = fn;
 
