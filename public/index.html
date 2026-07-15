@@ -2006,7 +2006,7 @@ async function init() {
         WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
           AND C_PL_INCLUDE = TRUE AND ACCOUNT_TYPE = 'Expense'
         GROUP BY 1, 2, 3, 4, 5
-        ORDER BY SUM(AMT) DESC`;
+        ORDER BY AMT DESC`;
       const vendorRows = await execSQL(qv);
       buildVendor(vendorRows);
       document.getElementById('vendorFootnote').textContent +=
