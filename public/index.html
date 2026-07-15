@@ -1981,8 +1981,8 @@ async function init() {
     // Discover actual vendor column name from INFORMATION_SCHEMA
     const colRows = await execSQL(`
       SELECT COLUMN_NAME
-      FROM load.finance_sandbox.INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_NAME = 'MRP_FINANCIALS'
+      FROM load.INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'FINANCE_SANDBOX' AND TABLE_NAME = 'MRP_FINANCIALS'
       ORDER BY ORDINAL_POSITION`);
 
     const colNames = colRows.map(r => r.COLUMN_NAME || r.column_name || Object.values(r)[0]);
