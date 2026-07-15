@@ -106,6 +106,7 @@
   <button class="tab-btn" onclick="switchTab('qtr',this)">Quarterly Forecast</button>
   <button class="tab-btn" onclick="switchTab('bridge',this)">Forecast Bridge</button>
   <button class="tab-btn" onclick="switchTab('gl',this)">GL Detail</button>
+  <button class="tab-btn" onclick="switchTab('vendor',this)">Vendor Detail</button>
 </div>
 
 <div class="content">
@@ -215,6 +216,29 @@
   </div>
 
   <!-- P&L BY DEPARTMENT -->
+  <div id="tab-vendor" class="tab-panel">
+    <div class="table-card" style="margin:16px">
+      <div class="table-title" style="flex-direction:column;align-items:flex-start;gap:10px">
+        <span>Vendor Detail — FY27 YTD (Feb–Jun 2026 Actuals)</span>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <select id="vendorDeptFilter" style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer"></select>
+          <select id="vendorClsFilter"  style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer"></select>
+          <select id="vendorAcctFilter" style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer"></select>
+        </div>
+      </div>
+      <table class="data-table">
+        <thead><tr class="col-header">
+          <th class="label-col" style="text-align:left;min-width:280px">Vendor</th>
+          <th style="text-align:right">Amount ($K)</th>
+          <th style="text-align:right">% of Total</th>
+          <th style="text-align:left;padding-left:12px">Departments</th>
+        </tr></thead>
+        <tbody id="vendorBody"><tr><td colspan="4" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+      </table>
+      <div class="footnote" id="vendorFootnote"></div>
+    </div>
+  </div>
+
   <div id="tab-dept" class="tab-panel">
     <div class="table-card">
       <div class="table-title">
@@ -478,6 +502,50 @@ const Q_HIST_CASH = `
     AND ACCOUNT_CATEGORY IN ('Cash','Equity')
   GROUP BY MONTH_END_DATE ORDER BY MONTH_END_DATE`;
 
+// Billings + Collections: FY24–FY27 by month (actuals + historical ratios)
+const Q_BILLINGS = `
+  SELECT DT, SUM(BILLINGS) AS BILLINGS, SUM(COLLECTIONS) AS COLLECTIONS FROM (
+    SELECT INVOICED_ACCOUNTING_PERIOD AS DT, INVOICE_AMOUNT_USD AS BILLINGS, 0 AS COLLECTIONS
+    FROM load.finance_sandbox.mrp_billings_collections
+    WHERE INVOICED_ACCOUNTING_PERIOD BETWEEN '2023-02-01' AND '2026-06-30'
+    UNION ALL
+    SELECT COLLECTED_ACCOUNTING_PERIOD AS DT, 0 AS BILLINGS, COLLECTION_AMOUNT_USD AS COLLECTIONS
+    FROM load.finance_sandbox.mrp_billings_collections
+    WHERE COLLECTED_ACCOUNTING_PERIOD BETWEEN '2023-02-01' AND '2026-06-30'
+  )
+  GROUP BY 1 ORDER BY 1`;
+
+// Revenue by type, monthly actuals (Feb–Jun 2026)
+const Q_REV_BY_TYPE_ACT = `
+  SELECT MONTH_END_DT AS DT, COALESCE(C_REVENUE,'') AS REV_TYPE, SUM(-AMT) AS REVENUE
+  FROM load.finance_sandbox.mrp_financials
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
+    AND C_PL_INCLUDE = TRUE AND ACCOUNT_TYPE = 'Income'
+  GROUP BY 1, 2 ORDER BY 1`;
+
+// Revenue by type, monthly live model (Jul–Jan 2027)
+const Q_REV_BY_TYPE_LIVE = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_REVENUE,'') AS REV_TYPE, SUM(VALUE) AS REVENUE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model' AND C_PL_INCLUDE = 1
+    AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
+    AND COALESCE(C_REVENUE,'') != ''
+  GROUP BY 1, 2 ORDER BY 1`;
+
+// Vendor spend: FY27 YTD by vendor/dept/class/account
+const Q_VENDORS = `
+  SELECT COALESCE(VENDOR_NAME,'(no vendor)') AS VENDOR,
+    COALESCE(C_PARENT_DEPT,'') AS DEPT,
+    COALESCE(C_PL_CLASS,'') AS CLS,
+    COALESCE(ACCOUNT_NBR,'') AS ACCT,
+    COALESCE(ACCOUNT_NAME,'') AS ACCT_NAME,
+    SUM(AMT) AS AMT
+  FROM load.finance_sandbox.mrp_financials
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
+    AND C_PL_INCLUDE = TRUE AND ACCOUNT_TYPE = 'Expense'
+  GROUP BY 1, 2, 3, 4, 5
+  ORDER BY SUM(AMT) DESC`;
+
 // ─── PRE-PROCESS ─────────────────────────────────────
 
 // mrp_forecast rows (revenue + expenses both positive)
@@ -611,6 +679,28 @@ function processCash(rows) {
   return { bop: monthly['2026-01-31']||0, latest: monthly['2026-06-30']||0, monthly };
 }
 
+// Billings & Collections: monthly maps + period helpers
+function processBillings(rows) {
+  const bill = {}, coll = {};
+  for (const r of rows) {
+    const dt = r.DT ? r.DT.slice(0,10) : '';
+    bill[dt] = (bill[dt]||0) + +(r.BILLINGS||0);
+    coll[dt] = (coll[dt]||0) + +(r.COLLECTIONS||0);
+  }
+  function periodSum(map, start, end) {
+    return Object.entries(map).reduce((s,[dt,v]) => dt >= start && dt <= end ? s+v : s, 0);
+  }
+  return {
+    bill, coll,
+    ytdBill: periodSum(bill, '2026-02-01', '2026-06-30'),
+    ytdColl: periodSum(coll, '2026-02-01', '2026-06-30'),
+    qBill:   (months) => months.reduce((s,dt) => s+(bill[dt]||0), 0),
+    qColl:   (months) => months.reduce((s,dt) => s+(coll[dt]||0), 0),
+    histBill: (start, end) => periodSum(bill, start, end),
+    histColl: (start, end) => periodSum(coll, start, end),
+  };
+}
+
 // ─── TABLE HELPERS ────────────────────────────────────
 function makeHead(labelW='220px') {
   return `
@@ -676,7 +766,7 @@ function rowHC(label, budHC, fcstHC) {
 }
 
 // ─── BUILD EXEC SUMMARY ───────────────────────────────
-function buildExec(bud, fcst, arr, kpi, cash) {
+function buildExec(bud, fcst, arr, kpi, cash, billings) {
   const budRevTotal  = bud.revTotal();
   const fcstRevTotal = fcst.revTotal();
   const budExpTotal  = bud.expAllDepts();
@@ -742,6 +832,11 @@ function buildExec(bud, fcst, arr, kpi, cash) {
   h += row('Cash Burn (FY27)',   budCashBurn,      fcstCashBurn,      { varDir: 1 });
   h += spacer();
 
+  h += secRow('Billings & Collections');
+  h += row('Billings (YTD Actuals)',    0, billings.ytdBill,   { varDir:1, pctFn:()=>'' });
+  h += row('Collections (YTD Actuals)', 0, billings.ytdColl,   { varDir:1, pctFn:()=>'' });
+  h += spacer();
+
   h += secRow('Headcount');
   h += rowHC('Total HC (EOP Jan \'27)', budHC, fcstHC);
 
@@ -779,6 +874,27 @@ function buildPL(bud, fcst) {
   const budGP=budRevTotal-budCogs, fcstGP=fcstRevTotal-fcstCogs;
   h += row('Gross Profit', budGP, fcstGP, { cls:'row-subtotal', varDir:1 });
   h += rowPct('GM%', budRevTotal?budGP/budRevTotal:0, fcstRevTotal?fcstGP/fcstRevTotal:0, { cls:'row-margin', varDir:1 });
+
+  // ── Gross Margin by category ──────────────────────────
+  const budSvcsRev  = bud.revSum('Services Revenue');
+  const fcstSvcsRev = fcst.revSum('Services Revenue');
+  const budSvcsCOGS = bud.expSum('COGS: Services','','');
+  const fcstSvcsCOGS= fcst.expSum('COGS: Services','','');
+  const budSvcsGM   = budSvcsRev - budSvcsCOGS;
+  const fcstSvcsGM  = fcstSvcsRev - fcstSvcsCOGS;
+
+  const budInfraRev  = bud.revSum('Subscription Revenue') + bud.revSum('Consumption Revenue');
+  const fcstInfraRev = fcst.revSum('Subscription Revenue') + fcst.revSum('Consumption Revenue');
+  const budInfraCOGS = bud.expSum('COGS: Infrastructure','','');
+  const fcstInfraCOGS= fcst.expSum('COGS: Infrastructure','','');
+  const budInfraGM   = budInfraRev - budInfraCOGS;
+  const fcstInfraGM  = fcstInfraRev - fcstInfraCOGS;
+
+  h += secRow('Gross Margin Detail');
+  h += row('Services GM',  budSvcsGM,  fcstSvcsGM,  { lc:'label-indent', varDir:1 });
+  h += rowPct('Services GM%', budSvcsRev?budSvcsGM/budSvcsRev:0, fcstSvcsRev?fcstSvcsGM/fcstSvcsRev:0, { cls:'row-margin', lc:'label-indent', varDir:1 });
+  h += row('Infrastructure GM', budInfraGM, fcstInfraGM, { lc:'label-indent', varDir:1 });
+  h += rowPct('Infrastructure GM%', budInfraRev?budInfraGM/budInfraRev:0, fcstInfraRev?fcstInfraGM/fcstInfraRev:0, { cls:'row-margin', lc:'label-indent', varDir:1 });
   h += spacer();
 
   let budOpex=0, fcstOpex=0;
@@ -814,7 +930,7 @@ function buildPL(bud, fcst) {
 }
 
 // ─── BUILD QUARTERLY FORECAST ────────────────────────
-function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
+function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly, billings) {
   const QTRS = [
     { label:'Q1 FY27', sub:"Feb–Apr '26", months:['2026-02-28','2026-03-31','2026-04-30'], isActual:true },
     { label:'Q2 FY27', sub:"May–Jul '26", months:['2026-05-31','2026-06-30','2026-07-31'], isActual:false },
@@ -956,6 +1072,15 @@ function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly) {
   h += qpct('EBITDA Margin %',      allData.map(q => q.rev ? q.ebitda/q.rev : NaN));
   h += qrow('Cash Burn',            allData.map(q=>q.cfBurn));
   h += qspacer();
+
+  if (billings) {
+    const fyBill = qs.reduce((s,q)=>s+billings.qBill(q.months),0);
+    const fyColl = qs.reduce((s,q)=>s+billings.qColl(q.months),0);
+    h += qsec('Billings & Collections');
+    h += qrow('Billings',    [...qs.map(q=>billings.qBill(q.months)), fyBill]);
+    h += qrow('Collections', [...qs.map(q=>billings.qColl(q.months)), fyColl]);
+    h += qspacer();
+  }
 
   h += qsec('Headcount');
   h += qhc('HC EOP',                allData.map(q=>q.hc));
@@ -1220,7 +1345,7 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
 }
 
 // ─── BUILD QUARTERLY BY DEPT ─────────────────────────
-function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
+function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows, revTypeRows) {
   // deptMap[dept][cls][dt] = expense
   const deptMap = {};
   const add = (dept, cls, dt, exp) => {
@@ -1235,6 +1360,16 @@ function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
   // Revenue from monthlyRevRows
   const revMap = {};
   for (const r of monthlyRevRows) revMap[r.dt] = (revMap[r.dt]||0) + r.rev;
+
+  // Revenue by type (for GM calculation)
+  const revTypeMap = {};  // [dt][revType] = amount
+  for (const r of (revTypeRows||[])) {
+    const dt = r.DT ? r.DT.slice(0,10) : '';
+    if (!revTypeMap[dt]) revTypeMap[dt] = {};
+    revTypeMap[dt][r.REV_TYPE] = (revTypeMap[dt][r.REV_TYPE]||0) + +(r.REVENUE||0);
+  }
+  const qRevType = (types, months) =>
+    months.reduce((s,dt) => s + types.reduce((ss,t) => ss+(revTypeMap[dt]?.[t]||0), 0), 0);
 
   const QTRS = [
     { label:'Q1 FY27', sub:"Feb–Apr '26",     months:['2026-02-28','2026-03-31','2026-04-30'], act:true  },
@@ -1300,6 +1435,50 @@ function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows) {
     h += spacer();
   }
   h += rowQ('Total COGS', cogsVals, 'row-total');
+
+  // Gross Margin breakdown
+  const SVCS_TYPES = ['Services Revenue'];
+  const INFRA_TYPES = ['Subscription Revenue','Consumption Revenue'];
+  const svcsRevVals  = QTRS.map(q => qRevType(SVCS_TYPES,  q.months));
+  const infraRevVals = QTRS.map(q => qRevType(INFRA_TYPES, q.months));
+  const svcsCOGSVals = QTRS.map(q => qExp('COGS: Services',      null, q.months));
+  const infraCOGSVals= QTRS.map(q => qExp('COGS: Infrastructure', null, q.months));
+  const svcsGMVals   = svcsRevVals.map((r,i)  => r - svcsCOGSVals[i]);
+  const infraGMVals  = infraRevVals.map((r,i) => r - infraCOGSVals[i]);
+  const totalGMVals  = QTRS.map((_,i) => revVals[i] - cogsVals[i]);
+
+  h += secRow('Gross Margin');
+  h += rowQ('Services GM',        svcsGMVals,  'row-subtotal');
+  h += (()=>{
+    const pcts = svcsGMVals.map((g,i) => svcsRevVals[i] ? g/svcsRevVals[i] : NaN);
+    const yeGM = svcsGMVals.reduce((s,v)=>s+v,0), yeRev = svcsRevVals.reduce((s,v)=>s+v,0);
+    const yePct = yeRev ? yeGM/yeRev : NaN;
+    const all = [...pcts, yePct];
+    const fw = 400;
+    return `<tr><td class="label-indent" style="font-style:italic;color:#4b5563">Services GM%</td>` +
+      all.map(v => `<td style="text-align:right;padding:6px 10px;font-style:italic;color:#4b5563">${isNaN(v)?'—':N(v*100,1)+'%'}</td>`).join('') +
+      '</tr>';
+  })();
+  h += rowQ('Infrastructure GM',  infraGMVals, 'row-subtotal');
+  h += (()=>{
+    const pcts = infraGMVals.map((g,i) => infraRevVals[i] ? g/infraRevVals[i] : NaN);
+    const yeGM = infraGMVals.reduce((s,v)=>s+v,0), yeRev = infraRevVals.reduce((s,v)=>s+v,0);
+    const yePct = yeRev ? yeGM/yeRev : NaN;
+    const all = [...pcts, yePct];
+    return `<tr><td class="label-indent" style="font-style:italic;color:#4b5563">Infrastructure GM%</td>` +
+      all.map(v => `<td style="text-align:right;padding:6px 10px;font-style:italic;color:#4b5563">${isNaN(v)?'—':N(v*100,1)+'%'}</td>`).join('') +
+      '</tr>';
+  })();
+  h += rowQ('Total Gross Margin', totalGMVals, 'row-total');
+  h += (()=>{
+    const pcts = totalGMVals.map((g,i) => revVals[i] ? g/revVals[i] : NaN);
+    const yeGM = totalGMVals.reduce((s,v)=>s+v,0), yeRev = revVals.reduce((s,v)=>s+v,0);
+    const yePct = yeRev ? yeGM/yeRev : NaN;
+    const all = [...pcts, yePct];
+    return `<tr><td class="label-indent" style="font-style:italic;color:#4b5563;font-weight:600">Total GM%</td>` +
+      all.map(v => `<td style="text-align:right;padding:6px 10px;font-style:italic;color:#4b5563;font-weight:600">${isNaN(v)?'—':N(v*100,1)+'%'}</td>`).join('') +
+      '</tr>';
+  })();
   h += spacer();
 
   // OpEx depts
@@ -1376,7 +1555,7 @@ function processHistorical(histPLRows, histARRRows, histCashRows) {
 }
 
 // ─── BUILD FORECAST BRIDGE ────────────────────────────
-function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
+function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings) {
   const LM_START='2026-07-01', FY_END='2027-01-31', JAN27='2027-01-31';
 
   // ── FY27 YTD (Feb–Jun actuals) ──────────────────────
@@ -1515,7 +1694,7 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
     vals.forEach((v, i) => {
       const isRatioCol = i >= 2 && i <= 5;
       const style = `background:${bgs[i]};text-align:right;padding:6px 10px;font-size:${isRatioCol?'11.5':'12.5'}px;${isRatioCol?'color:#4b5563;':''}`;
-      const display = (typeof v === 'string') ? v : KD(v/1e3);
+      const display = (v === null || v === undefined) ? '—' : (typeof v === 'string') ? v : KD(v/1e3);
       r += `<td style="${style}">${display}</td>`;
     });
     r += '</tr>';
@@ -1570,6 +1749,29 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
   h += brow('EOP ARR',           ytdEopArr, royEopArr, eopNa, yeEopArr, { cls:'row-subtotal' });
   h += bspacer();
 
+  if (billings) {
+    // Historical billings/collections ratios: FY24–FY26 (RoY / YTD multiple)
+    const fR2 = v => v === null ? '—' : N(v, 1) + 'x';
+    const ratio2 = (r, y) => (y == null || Math.abs(y) < 500 || r == null || r < 0 || y < 0) ? null : r / y;
+    const billRatios = [
+      '—',   // FY27 RoY — no forecast for billings
+      fR2(ratio2(billings.histBill('2025-07-01','2026-01-31'), billings.histBill('2025-02-01','2025-06-30'))),
+      fR2(ratio2(billings.histBill('2024-07-01','2025-01-31'), billings.histBill('2024-02-01','2024-06-30'))),
+      fR2(ratio2(billings.histBill('2023-07-01','2024-01-31'), billings.histBill('2023-02-01','2023-06-30'))),
+    ];
+    const collRatios = [
+      '—',   // FY27 RoY — no forecast for collections
+      fR2(ratio2(billings.histColl('2025-07-01','2026-01-31'), billings.histColl('2025-02-01','2025-06-30'))),
+      fR2(ratio2(billings.histColl('2024-07-01','2025-01-31'), billings.histColl('2024-02-01','2024-06-30'))),
+      fR2(ratio2(billings.histColl('2023-07-01','2024-01-31'), billings.histColl('2023-02-01','2023-06-30'))),
+    ];
+
+    h += bsec('Billings & Collections');
+    h += brow('Billings',    billings.ytdBill, null, billRatios, null, { isEop:false });
+    h += brow('Collections', billings.ytdColl, null, collRatios, null, { isEop:false });
+    h += bspacer();
+  }
+
   h += bsec('Revenue & Profitability');
   h += brow('Revenue',            ytdRev,       royRev,       revRatios,      yeRev,    { cls:'row-subtotal' });
   h += brow('Headcount Costs',   ytdExpHC,     royExpHC,     hcExpRatios,    yeExpHC,  { lc:'label-indent' });
@@ -1595,6 +1797,84 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist) {
     'Cash Burn = change in Cash + Equity balance (mrp_cash). HC EOP = Jan 2027 Live Model; YTD HC = Budget proxy.';
 }
 
+// ─── BUILD VENDOR DETAIL ─────────────────────────────
+function buildVendor(rows) {
+  const allRows = rows.map(r => ({
+    vendor: r.VENDOR||'(no vendor)',
+    dept:   r.DEPT||'',
+    cls:    r.CLS||'',
+    acct:   r.ACCT||'',
+    acctName: r.ACCT_NAME||'',
+    amt:    +(r.AMT||0)
+  })).filter(r => r.amt !== 0);
+
+  const depts   = [...new Set(allRows.map(r=>r.dept))].filter(Boolean).sort();
+  const classes = [...new Set(allRows.map(r=>r.cls))].filter(Boolean).sort();
+  const accts   = [...new Set(allRows.map(r=>r.acct))].filter(Boolean).sort();
+
+  // Filter UI
+  const sel = id => document.getElementById(id);
+  const build = (selectId, opts, label) => {
+    const el = sel(selectId);
+    el.innerHTML = `<option value="">${label} (All)</option>` +
+      opts.map(o=>`<option value="${o}">${o}</option>`).join('');
+    el.onchange = render;
+  };
+  build('vendorDeptFilter',  depts,   'Department');
+  build('vendorClsFilter',   classes, 'Class');
+  build('vendorAcctFilter',  accts,   'GL Account');
+
+  function render() {
+    const fDept = sel('vendorDeptFilter')?.value||'';
+    const fCls  = sel('vendorClsFilter')?.value||'';
+    const fAcct = sel('vendorAcctFilter')?.value||'';
+
+    const filtered = allRows.filter(r =>
+      (!fDept || r.dept === fDept) &&
+      (!fCls  || r.cls  === fCls)  &&
+      (!fAcct || r.acct === fAcct)
+    );
+
+    // Aggregate by vendor
+    const vendorTotals = {};
+    for (const r of filtered) {
+      if (!vendorTotals[r.vendor]) vendorTotals[r.vendor] = { depts: new Set(), amt: 0 };
+      vendorTotals[r.vendor].depts.add(r.dept);
+      vendorTotals[r.vendor].amt += r.amt;
+    }
+
+    const sorted = Object.entries(vendorTotals)
+      .sort(([,a],[,b]) => b.amt - a.amt);
+    const total = sorted.reduce((s,[,v])=>s+v.amt,0);
+
+    let h = '';
+    for (const [vendor, v] of sorted) {
+      if (Math.abs(v.amt) < 1) continue;
+      h += `<tr>
+        <td class="label-col">${vendor}</td>
+        <td style="text-align:right;padding:6px 10px">${KD(v.amt/1e3)}</td>
+        <td style="text-align:right;padding:6px 10px;color:#6b7280;font-size:11.5px">${v.amt&&total ? N(v.amt/total*100,1)+'%' : '—'}</td>
+        <td style="padding:6px 10px;color:#6b7280;font-size:11.5px">${[...v.depts].filter(Boolean).sort().join(', ')||'—'}</td>
+      </tr>`;
+    }
+    if (!h) h = '<tr><td colspan="4" style="padding:20px;color:#9ba3af;text-align:center">No results</td></tr>';
+
+    // Total row
+    h += `<tr class="row-total"><td class="label-col">Total</td>
+      <td style="text-align:right;padding:6px 10px">${KD(total/1e3)}</td>
+      <td style="text-align:right;padding:6px 10px"></td>
+      <td></td></tr>`;
+
+    document.getElementById('vendorBody').innerHTML = h;
+  }
+
+  render();
+  document.getElementById('vendorFootnote').textContent =
+    'FY27 YTD (Feb–Jun 2026) expense actuals from mrp_financials. Amounts in $K. ' +
+    (rows.length === 0 ? 'No vendor data found — VENDOR_NAME column may not exist in mrp_financials.' :
+     `${rows.length.toLocaleString()} rows aggregated into ${[...new Set(allRows.map(r=>r.vendor))].length} vendors.`);
+}
+
 // ─── INIT ────────────────────────────────────────────
 async function waitForCowork(timeout=5000) {
   const start=Date.now();
@@ -1611,7 +1891,8 @@ async function init() {
   try {
     // Phase 1: core queries (13) — run concurrently
     const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
-           histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows] = await Promise.all([
+           histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
+           billRows, revTypeActRows, revTypeLiveRows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -1625,6 +1906,9 @@ async function init() {
       execSQL(Q_HIST_CASH),
       execSQL(Q_MONTHLY_ACTUALS_DEPT),
       execSQL(Q_MONTHLY_LIVE_DEPT),
+      execSQL(Q_BILLINGS),
+      execSQL(Q_REV_BY_TYPE_ACT),
+      execSQL(Q_REV_BY_TYPE_LIVE),
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -1635,6 +1919,11 @@ async function init() {
     const kpi    = processKPI(kpiRows);
     const cash   = processCash(cashRows);
     const hist   = processHistorical(histPLRows, histARRRows, histCashRows);
+    const billings = processBillings(billRows);
+    const revTypeRows = [
+      ...revTypeActRows.map(r => ({ DT: r.DT, REV_TYPE: r.REV_TYPE, REVENUE: r.REVENUE })),
+      ...revTypeLiveRows.map(r => ({ DT: r.DT, REV_TYPE: r.REV_TYPE, REVENUE: r.REVENUE })),
+    ];
 
     const monthlyRevRows = [
       ...maRows.map(r => ({ dt: r.DT.slice(0,10), rev: +(r.REVENUE||0), exp: +(r.EXPENSE||0), src: 'actual' })),
@@ -1644,11 +1933,11 @@ async function init() {
     document.getElementById('execHead').innerHTML = makeHead('220px');
     document.getElementById('deptHead').innerHTML = makeHead('220px');
 
-    buildExec(bud, blended, arr, kpi, cash);
+    buildExec(bud, blended, arr, kpi, cash, billings);
     buildPL(bud, blended);
-    buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows);
-    buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly);
-    buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist);
+    buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows, revTypeRows);
+    buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings);
+    buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings);
 
     const now = new Date();
     document.getElementById('asOfBadge').textContent =
@@ -1682,6 +1971,18 @@ async function init() {
     document.getElementById('glBody').innerHTML =
       `<tr><td colspan="9" style="padding:20px;color:#991b1b;text-align:center">GL Detail failed: ${glErr.message}</td></tr>`;
     document.getElementById('glFoot').innerHTML = '';
+  }
+
+  // Phase 3: Vendor Detail — isolated
+  try {
+    document.getElementById('vendorBody').innerHTML =
+      '<tr><td colspan="4" style="padding:20px;color:#9ba3af;text-align:center">Loading vendor data…</td></tr>';
+    const vendorRows = await execSQL(Q_VENDORS);
+    buildVendor(vendorRows);
+  } catch (vendErr) {
+    document.getElementById('vendorBody').innerHTML =
+      `<tr><td colspan="4" style="padding:20px;color:#991b1b;text-align:center">Vendor Detail failed: ${vendErr.message}</td></tr>`;
+    document.getElementById('vendorFootnote').textContent = '';
   }
 }
 
