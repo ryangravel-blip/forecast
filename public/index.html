@@ -1973,12 +1973,45 @@ async function init() {
     document.getElementById('glFoot').innerHTML = '';
   }
 
-  // Phase 3: Vendor Detail — isolated
+  // Phase 3: Vendor Detail — discover vendor column name, then query
   try {
     document.getElementById('vendorBody').innerHTML =
       '<tr><td colspan="4" style="padding:20px;color:#9ba3af;text-align:center">Loading vendor data…</td></tr>';
-    const vendorRows = await execSQL(Q_VENDORS);
-    buildVendor(vendorRows);
+
+    // Discover actual vendor column name from INFORMATION_SCHEMA
+    const colRows = await execSQL(`
+      SELECT COLUMN_NAME
+      FROM load.finance_sandbox.INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = 'MRP_FINANCIALS'
+      ORDER BY ORDINAL_POSITION`);
+
+    const colNames = colRows.map(r => r.COLUMN_NAME || r.column_name || Object.values(r)[0]);
+    // Prefer explicit vendor-like columns; fall back to DEPARTMENT_NAME
+    const vendorCol = colNames.find(c => /vendor|payee|entity|supplier/i.test(c)) || null;
+
+    if (!vendorCol) {
+      // Show available columns so user can identify the right one
+      document.getElementById('vendorBody').innerHTML =
+        `<tr><td colspan="4" style="padding:20px;color:#d97706">No vendor-like column found in mrp_financials.<br>
+        Available columns: ${colNames.join(', ')}</td></tr>`;
+    } else {
+      const qv = `
+        SELECT COALESCE(${vendorCol},'(no vendor)') AS VENDOR,
+          COALESCE(C_PARENT_DEPT,'') AS DEPT,
+          COALESCE(C_PL_CLASS,'') AS CLS,
+          COALESCE(ACCOUNT_NBR,'') AS ACCT,
+          COALESCE(ACCOUNT_NAME,'') AS ACCT_NAME,
+          SUM(AMT) AS AMT
+        FROM load.finance_sandbox.mrp_financials
+        WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
+          AND C_PL_INCLUDE = TRUE AND ACCOUNT_TYPE = 'Expense'
+        GROUP BY 1, 2, 3, 4, 5
+        ORDER BY SUM(AMT) DESC`;
+      const vendorRows = await execSQL(qv);
+      buildVendor(vendorRows);
+      document.getElementById('vendorFootnote').textContent +=
+        ` (vendor column: ${vendorCol})`;
+    }
   } catch (vendErr) {
     document.getElementById('vendorBody').innerHTML =
       `<tr><td colspan="4" style="padding:20px;color:#991b1b;text-align:center">Vendor Detail failed: ${vendErr.message}</td></tr>`;
