@@ -219,7 +219,7 @@
   <div id="tab-vendor" class="tab-panel">
     <div class="table-card" style="margin:16px">
       <div class="table-title" style="flex-direction:column;align-items:flex-start;gap:10px">
-        <span>Vendor Detail — FY27 YTD (Feb–Jun 2026 Actuals)</span>
+        <span>Vendor Detail — FY27 YTD Actuals + Live Model Forecast</span>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <select id="vendorDeptFilter" style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer"></select>
           <select id="vendorClsFilter"  style="border:1px solid #334155;border-radius:6px;padding:5px 12px;font-size:12.5px;color:#e2e8f0;background:#1e2a3a;cursor:pointer"></select>
@@ -227,13 +227,23 @@
         </div>
       </div>
       <table class="data-table">
-        <thead><tr class="col-header">
-          <th class="label-col" style="text-align:left;min-width:280px">Vendor</th>
-          <th style="text-align:right">Amount ($K)</th>
-          <th style="text-align:right">% of Total</th>
-          <th style="text-align:left;padding-left:12px">Departments</th>
-        </tr></thead>
-        <tbody id="vendorBody"><tr><td colspan="4" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        <thead>
+          <tr class="group-header">
+            <th class="label-col hdr-lbl" style="min-width:280px"></th>
+            <th style="background:#3b5180;color:#e2e8f0;text-align:center">FY27 Actuals</th>
+            <th style="background:#1e4d2e;color:#e2e8f0;text-align:center">FY27 Forecast</th>
+            <th style="background:#4b5563;color:#f3f4f6;text-align:center">Multiple</th>
+            <th style="background:#2d3748;color:#e2e8f0;text-align:center">YE Total</th>
+          </tr>
+          <tr class="col-header">
+            <th class="label-col" style="text-align:left;min-width:280px">Vendor</th>
+            <th style="background:#f0f4fb;text-align:right;white-space:nowrap">YTD (Feb–Jun '26)</th>
+            <th style="background:#f0fdf4;text-align:right;white-space:nowrap">RoY Fcst (Jul–Jan '27)</th>
+            <th style="background:#fafafa;text-align:right;white-space:nowrap">RoY / YTD</th>
+            <th style="background:#e9edf2;text-align:right;white-space:nowrap">FY27 Total ($K)</th>
+          </tr>
+        </thead>
+        <tbody id="vendorBody"><tr><td colspan="5" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
       </table>
       <div class="footnote" id="vendorFootnote"></div>
     </div>
@@ -1798,81 +1808,120 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings) {
 }
 
 // ─── BUILD VENDOR DETAIL ─────────────────────────────
-function buildVendor(rows) {
-  const allRows = rows.map(r => ({
-    vendor: r.VENDOR||'(no vendor)',
-    dept:   r.DEPT||'',
-    cls:    r.CLS||'',
-    acct:   r.ACCT||'',
+function buildVendor(ytdRows, royRows) {
+  // ── Normalize rows ───────────────────────────────────
+  const ytd = (ytdRows||[]).map(r => ({
+    vendor:   r.VENDOR||'(no vendor)',
+    dept:     r.DEPT||'',
+    cls:      r.CLS||'',
+    acct:     r.ACCT||'',
     acctName: r.ACCT_NAME||'',
-    amt:    +(r.AMT||0)
-  })).filter(r => r.amt !== 0);
+    amt:      +(r.AMT||0),
+  }));
 
-  const depts   = [...new Set(allRows.map(r=>r.dept))].filter(Boolean).sort();
-  const classes = [...new Set(allRows.map(r=>r.cls))].filter(Boolean).sort();
-  const accts   = [...new Set(allRows.map(r=>r.acct))].filter(Boolean).sort();
+  // RoY keyed by vendor+dept+cls+acct for filter-aware aggregation
+  const royMap = {};  // `vendor|||dept|||cls|||acct` → roy
+  for (const r of (royRows||[])) {
+    const k = `${r.VENDOR||''}|||${r.DEPT||''}|||${r.CLS||''}|||${r.ACCT||''}`;
+    royMap[k] = (royMap[k]||0) + +(r.AMOUNT||0);
+  }
 
-  // Filter UI
+  // ── Build filter options ──────────────────────────────
+  const depts   = [...new Set(ytd.map(r=>r.dept))].filter(Boolean).sort();
+  const classes = [...new Set(ytd.map(r=>r.cls))].filter(Boolean).sort();
+  // GL Account: deduplicated by acct number, sorted; label = "ACCT# – Name"
+  const acctMap = {};
+  for (const r of ytd) if (r.acct) acctMap[r.acct] = r.acctName;
+  const acctPairs = Object.entries(acctMap).sort(([a],[b]) => a.localeCompare(b));
+
   const sel = id => document.getElementById(id);
-  const build = (selectId, opts, label) => {
-    const el = sel(selectId);
+
+  const buildSel = (id, opts, label) => {
+    const el = sel(id);
+    if (!el) return;
     el.innerHTML = `<option value="">${label} (All)</option>` +
-      opts.map(o=>`<option value="${o}">${o}</option>`).join('');
+      opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
     el.onchange = render;
   };
-  build('vendorDeptFilter',  depts,   'Department');
-  build('vendorClsFilter',   classes, 'Class');
-  build('vendorAcctFilter',  accts,   'GL Account');
+  buildSel('vendorDeptFilter', depts.map(d=>[d,d]),             'Department');
+  buildSel('vendorClsFilter',  classes.map(c=>[c,c]),           'Class');
+  buildSel('vendorAcctFilter', acctPairs.map(([a,n])=>[a, n ? `${a} – ${n}` : a]), 'GL Account');
 
+  // ── Ratio helper ──────────────────────────────────────
+  const fmtRatio = (roy, ytdAmt) => {
+    if (!ytdAmt || ytdAmt < 0 || !roy || roy < 0) return '—';
+    return N(roy / ytdAmt, 1) + 'x';
+  };
+
+  // ── Render ────────────────────────────────────────────
   function render() {
     const fDept = sel('vendorDeptFilter')?.value||'';
     const fCls  = sel('vendorClsFilter')?.value||'';
     const fAcct = sel('vendorAcctFilter')?.value||'';
 
-    const filtered = allRows.filter(r =>
+    const filtered = ytd.filter(r =>
       (!fDept || r.dept === fDept) &&
       (!fCls  || r.cls  === fCls)  &&
       (!fAcct || r.acct === fAcct)
     );
 
-    // Aggregate by vendor
-    const vendorTotals = {};
+    // Aggregate by vendor: sum YTD; match RoY with same filter scope
+    const agg = {};
     for (const r of filtered) {
-      if (!vendorTotals[r.vendor]) vendorTotals[r.vendor] = { depts: new Set(), amt: 0 };
-      vendorTotals[r.vendor].depts.add(r.dept);
-      vendorTotals[r.vendor].amt += r.amt;
+      if (!agg[r.vendor]) agg[r.vendor] = { ytd: 0, roy: 0 };
+      agg[r.vendor].ytd += r.amt;
+      // RoY: match same dept/cls/acct keys
+      const k = `${r.vendor}|||${r.dept}|||${r.cls}|||${r.acct}`;
+      agg[r.vendor].roy += royMap[k]||0;
+    }
+    // Also add RoY-only vendors (new spend in forecast not in actuals)
+    for (const [k, royAmt] of Object.entries(royMap)) {
+      const [vendor, dept, cls, acct] = k.split('|||');
+      if ((!fDept||dept===fDept)&&(!fCls||cls===fCls)&&(!fAcct||acct===fAcct)) {
+        if (!agg[vendor]) agg[vendor] = { ytd: 0, roy: 0 };
+        // roy already added above via ytd loop — only add if vendor wasn't in ytd
+        if (!filtered.find(r=>r.vendor===vendor&&r.dept===dept&&r.cls===cls&&r.acct===acct)) {
+          agg[vendor].roy += royAmt;
+        }
+      }
     }
 
-    const sorted = Object.entries(vendorTotals)
-      .sort(([,a],[,b]) => b.amt - a.amt);
-    const total = sorted.reduce((s,[,v])=>s+v.amt,0);
+    const sorted = Object.entries(agg)
+      .sort(([,a],[,b]) => (b.ytd+b.roy) - (a.ytd+a.roy));
 
+    const totYTD = sorted.reduce((s,[,v])=>s+v.ytd,0);
+    const totROY = sorted.reduce((s,[,v])=>s+v.roy,0);
+
+    const bgYTD  = '#f0f4fb', bgROY = '#f0fdf4', bgRat = '#fafafa', bgYE = '#e9edf2';
     let h = '';
     for (const [vendor, v] of sorted) {
-      if (Math.abs(v.amt) < 1) continue;
+      if (Math.abs(v.ytd) < 1 && Math.abs(v.roy) < 1) continue;
+      const ye = v.ytd + v.roy;
       h += `<tr>
         <td class="label-col">${vendor}</td>
-        <td style="text-align:right;padding:6px 10px">${KD(v.amt/1e3)}</td>
-        <td style="text-align:right;padding:6px 10px;color:#6b7280;font-size:11.5px">${v.amt&&total ? N(v.amt/total*100,1)+'%' : '—'}</td>
-        <td style="padding:6px 10px;color:#6b7280;font-size:11.5px">${[...v.depts].filter(Boolean).sort().join(', ')||'—'}</td>
+        <td style="background:${bgYTD};text-align:right;padding:6px 10px">${KD(v.ytd/1e3)}</td>
+        <td style="background:${bgROY};text-align:right;padding:6px 10px">${KD(v.roy/1e3)}</td>
+        <td style="background:${bgRat};text-align:right;padding:6px 10px;font-size:11.5px;color:#4b5563">${fmtRatio(v.roy,v.ytd)}</td>
+        <td style="background:${bgYE};text-align:right;padding:6px 10px;font-weight:500">${KD(ye/1e3)}</td>
       </tr>`;
     }
-    if (!h) h = '<tr><td colspan="4" style="padding:20px;color:#9ba3af;text-align:center">No results</td></tr>';
+    if (!h) h = '<tr><td colspan="5" style="padding:20px;color:#9ba3af;text-align:center">No results</td></tr>';
 
-    // Total row
-    h += `<tr class="row-total"><td class="label-col">Total</td>
-      <td style="text-align:right;padding:6px 10px">${KD(total/1e3)}</td>
-      <td style="text-align:right;padding:6px 10px"></td>
-      <td></td></tr>`;
+    const yeTotal = totYTD + totROY;
+    h += `<tr class="row-total">
+      <td class="label-col">Total</td>
+      <td style="background:${bgYTD};text-align:right;padding:6px 10px">${KD(totYTD/1e3)}</td>
+      <td style="background:${bgROY};text-align:right;padding:6px 10px">${KD(totROY/1e3)}</td>
+      <td style="background:${bgRat};text-align:right;padding:6px 10px"></td>
+      <td style="background:${bgYE};text-align:right;padding:6px 10px;font-weight:600">${KD(yeTotal/1e3)}</td>
+    </tr>`;
 
     document.getElementById('vendorBody').innerHTML = h;
   }
 
   render();
   document.getElementById('vendorFootnote').textContent =
-    'FY27 YTD (Feb–Jun 2026) expense actuals from mrp_financials. Amounts in $K. ' +
-    (rows.length === 0 ? 'No vendor data found — VENDOR_NAME column may not exist in mrp_financials.' :
-     `${rows.length.toLocaleString()} rows aggregated into ${[...new Set(allRows.map(r=>r.vendor))].length} vendors.`);
+    'YTD = Feb–Jun 2026 actuals (mrp_financials). RoY = Jul 2026–Jan 2027 Live Model (mrp_vendor_forecast). Amounts in $K.';
 }
 
 // ─── INIT ────────────────────────────────────────────
@@ -1973,48 +2022,72 @@ async function init() {
     document.getElementById('glFoot').innerHTML = '';
   }
 
-  // Phase 3: Vendor Detail — discover vendor column name, then query
+  // Phase 3: Vendor Detail — discover columns, query actuals + forecast
   try {
     document.getElementById('vendorBody').innerHTML =
-      '<tr><td colspan="4" style="padding:20px;color:#9ba3af;text-align:center">Loading vendor data…</td></tr>';
+      '<tr><td colspan="5" style="padding:20px;color:#9ba3af;text-align:center">Loading vendor data…</td></tr>';
 
-    // Discover actual vendor column name from INFORMATION_SCHEMA
-    const colRows = await execSQL(`
-      SELECT COLUMN_NAME
-      FROM load.INFORMATION_SCHEMA.COLUMNS
+    // Discover vendor column in mrp_financials
+    const finColRows = await execSQL(`
+      SELECT COLUMN_NAME FROM load.INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = 'FINANCE_SANDBOX' AND TABLE_NAME = 'MRP_FINANCIALS'
       ORDER BY ORDINAL_POSITION`);
+    const finCols = finColRows.map(r => r.COLUMN_NAME || r.column_name || Object.values(r)[0]);
+    const vendorColFin = finCols.find(c => /vendor|payee|entity|supplier/i.test(c));
 
-    const colNames = colRows.map(r => r.COLUMN_NAME || r.column_name || Object.values(r)[0]);
-    // Prefer explicit vendor-like columns; fall back to DEPARTMENT_NAME
-    const vendorCol = colNames.find(c => /vendor|payee|entity|supplier/i.test(c)) || null;
-
-    if (!vendorCol) {
-      // Show available columns so user can identify the right one
+    if (!vendorColFin) {
       document.getElementById('vendorBody').innerHTML =
-        `<tr><td colspan="4" style="padding:20px;color:#d97706">No vendor-like column found in mrp_financials.<br>
-        Available columns: ${colNames.join(', ')}</td></tr>`;
+        `<tr><td colspan="5" style="padding:20px;color:#d97706">No vendor column found.<br>Available columns: ${finCols.join(', ')}</td></tr>`;
     } else {
-      const qv = `
-        SELECT COALESCE(${vendorCol},'(no vendor)') AS VENDOR,
-          COALESCE(C_PARENT_DEPT,'') AS DEPT,
-          COALESCE(C_PL_CLASS,'') AS CLS,
-          COALESCE(ACCOUNT_NBR,'') AS ACCT,
-          COALESCE(ACCOUNT_NAME,'') AS ACCT_NAME,
+      // YTD actuals query
+      const qYTD = `
+        SELECT COALESCE(${vendorColFin},'(no vendor)') AS VENDOR,
+          COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
+          COALESCE(ACCOUNT_NBR,'') AS ACCT, COALESCE(ACCOUNT_NAME,'') AS ACCT_NAME,
           SUM(AMT) AS AMT
         FROM load.finance_sandbox.mrp_financials
         WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
           AND C_PL_INCLUDE = TRUE AND ACCOUNT_TYPE = 'Expense'
-        GROUP BY 1, 2, 3, 4, 5
-        ORDER BY AMT DESC`;
-      const vendorRows = await execSQL(qv);
-      buildVendor(vendorRows);
-      document.getElementById('vendorFootnote').textContent +=
-        ` (vendor column: ${vendorCol})`;
+        GROUP BY 1,2,3,4,5 ORDER BY AMT DESC`;
+      const ytdRows = await execSQL(qYTD);
+
+      // Discover vendor column in mrp_vendor_forecast
+      let royRows = [];
+      try {
+        const fcColRows = await execSQL(`
+          SELECT COLUMN_NAME FROM load.INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = 'FINANCE_SANDBOX' AND TABLE_NAME = 'MRP_VENDOR_FORECAST'
+          ORDER BY ORDINAL_POSITION`);
+        const fcCols = fcColRows.map(r => r.COLUMN_NAME || r.column_name || Object.values(r)[0]);
+        const vendorColFc = fcCols.find(c => /vendor|payee|entity|supplier/i.test(c));
+        const valCol = fcCols.find(c => /^value$/i.test(c)) || fcCols.find(c => /amount/i.test(c)) || 'VALUE';
+        const deptCol = fcCols.find(c => /c_parent_dept/i.test(c)) || 'C_PARENT_DEPT';
+        const clsCol  = fcCols.find(c => /c_pl_class/i.test(c))    || 'C_PL_CLASS';
+        const acctCol = fcCols.find(c => /account_code|account_nbr/i.test(c)) || 'ACCOUNT_CODE';
+        const dtCol   = fcCols.find(c => /time_month_end|month_end/i.test(c)) || 'TIME_MONTH_END';
+        const verCol  = fcCols.find(c => /version/i.test(c)) || 'VERSION_NAME';
+
+        if (vendorColFc) {
+          const qROY = `
+            SELECT COALESCE(${vendorColFc},'(no vendor)') AS VENDOR,
+              COALESCE(${deptCol},'') AS DEPT, COALESCE(${clsCol},'') AS CLS,
+              COALESCE(${acctCol},'') AS ACCT,
+              SUM(${valCol}) AS AMOUNT
+            FROM load.finance_sandbox.mrp_vendor_forecast
+            WHERE ${verCol} = 'Live Model'
+              AND ${dtCol} BETWEEN '2026-07-01' AND '2027-01-31'
+            GROUP BY 1,2,3,4 ORDER BY AMOUNT DESC`;
+          royRows = await execSQL(qROY);
+        }
+      } catch (fcErr) {
+        console.warn('mrp_vendor_forecast unavailable:', fcErr.message);
+      }
+
+      buildVendor(ytdRows, royRows);
     }
   } catch (vendErr) {
     document.getElementById('vendorBody').innerHTML =
-      `<tr><td colspan="4" style="padding:20px;color:#991b1b;text-align:center">Vendor Detail failed: ${vendErr.message}</td></tr>`;
+      `<tr><td colspan="5" style="padding:20px;color:#991b1b;text-align:center">Vendor Detail failed: ${vendErr.message}</td></tr>`;
     document.getElementById('vendorFootnote').textContent = '';
   }
 }
