@@ -58,7 +58,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     <h1>Marketing Vendor Spend</h1>
     <div class="subtitle">FY27 &nbsp;·&nbsp; Non-Headcount Costs by Vendor</div>
   </div>
-  <div class="period-badge">Actuals Feb&ndash;May-26 &nbsp;|&nbsp; Forecast Jun-26&ndash;Jan-27 (Adaptive export)</div>
+  <div class="period-badge">Actuals Feb&ndash;Jun-26 &nbsp;|&nbsp; Forecast Jul-26&ndash;Jan-27 (Adaptive export)</div>
 </div>
 
 <div class="content">
@@ -75,14 +75,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     </table>
   </div>
   <div class="footnote">
-    Actuals: <code>load.finance_sandbox.mrp_financials</code>, C_PL_INCLUDE = TRUE &middot;
-    Forecast (Jun-26&ndash;Jan-27): Adaptive vendor-level export, snapshot 2026-07-06 &mdash; replaces <code>mrp_vendor_forecast</code> for non-headcount Marketing spend, which has a confirmed data gap &middot;
+    Actuals: <code>load.finance_sandbox.mrp_financials</code>, C_PL_INCLUDE = TRUE, through Jun-26 &middot;
+    Forecast (Jul-26&ndash;Jan-27): Adaptive vendor-level export, snapshot 2026-07-06 &mdash; replaces <code>mrp_vendor_forecast</code> for non-headcount Marketing spend, which has a confirmed data gap &middot;
     Scope: C_PARENT_DEPT = 'Marketing', Non-Headcount Costs (excludes Headcount &amp; Overhead)<br>
     <span class="committed-badge" style="margin-left:0">Committed</span> = vendor has a live prepaid/amortization schedule in <code>mrp_prepaid_spend</code> &mdash; typically contracted, not easily reduced or cancelled &middot;
     Headcount total &amp; discretionary mix still pull C_PL_CLASS = 'Headcount Costs' from <code>mrp_vendor_forecast</code> (Live Model) &mdash; only the non-headcount vendor forecast was replaced<br>
     Category tags sourced from <code>marketing_budget.xlsx</code> (Vendor_level_expenses); vendors not in that file are tagged by GL account context &mdash; flag any that look off and I'll adjust the mapping<br>
     <span class="contract-note" style="margin-left:0">Exp M/D/YYYY</span> = contract expiration date, from the Comment/Notes column of the Adaptive export<br>
-    Snowflake Inc., Nomo Soho, Sender inc, Meltwater &amp; Pyramid Displays: added directly from <code>mrp_prepaid_spend</code> &mdash; real committed schedules the Adaptive export doesn't carry at all ($216K total, flagged 2026-07-06)
+    Sender inc, Meltwater &amp; Pyramid Displays (Jul-26 onward): added directly from <code>mrp_prepaid_spend</code> &mdash; real committed schedules the Adaptive export doesn't carry at all, flagged 2026-07-06. Snowflake Inc. and Nomo Soho were one-time Jun-26 prepaid recognitions, now covered by actuals and removed from the forecast additions to avoid double-counting
   </div>
 </div>
 
@@ -90,10 +90,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 
 <script>
 // ─── CONSTANTS ────────────────────────────────────────
-// FY27 = Feb-26 through Jan-27. Actuals close through May-26; Jun-26 onward is forecast (Live Model).
+// FY27 = Feb-26 through Jan-27. Actuals close through Jun-26; Jul-26 onward is forecast (Live Model).
 const FY27_MONTHS = ['2026-02-28','2026-03-31','2026-04-30','2026-05-31','2026-06-30','2026-07-31','2026-08-31','2026-09-30','2026-10-31','2026-11-30','2026-12-31','2027-01-31'];
 const FY27_LBL    = ['Feb-26','Mar-26','Apr-26','May-26','Jun-26','Jul-26','Aug-26','Sep-26','Oct-26','Nov-26','Dec-26','Jan-27'];
-const FY27_ACTUAL_THRU = '2026-05-31';
+const FY27_ACTUAL_THRU = '2026-06-30';
 const FY27_QTRS = [
   { label: 'Q1 FY27', months: ['2026-02-28','2026-03-31','2026-04-30'] },
   { label: 'Q2 FY27', months: ['2026-05-31','2026-06-30','2026-07-31'] },
@@ -160,7 +160,7 @@ const Q = {
     FROM load.finance_sandbox.mrp_financials
     WHERE C_PARENT_DEPT = 'Marketing' AND C_PL_INCLUDE = TRUE
       AND C_PL_CLASS = 'Non-Headcount Costs'
-      AND MONTH_END_DT BETWEEN '2026-02-01' AND '2026-05-31'
+      AND MONTH_END_DT BETWEEN '2026-02-01' AND '2026-06-30'
     GROUP BY MONTH_END_DT, VENDOR, ACCOUNT_NAME
     ORDER BY MONTH_END_DT`,
 
@@ -185,7 +185,7 @@ const Q = {
     FROM load.finance_sandbox.mrp_financials
     WHERE C_PARENT_DEPT = 'Marketing' AND C_PL_INCLUDE = TRUE
       AND C_PL_CLASS = 'Headcount Costs'
-      AND MONTH_END_DT BETWEEN '2026-02-01' AND '2026-05-31'
+      AND MONTH_END_DT BETWEEN '2026-02-01' AND '2026-06-30'
     GROUP BY MONTH_END_DT
     ORDER BY MONTH_END_DT`,
 
@@ -194,7 +194,7 @@ const Q = {
     FROM load.finance_sandbox.mrp_vendor_forecast
     WHERE C_PARENT_DEPT = 'Marketing' AND VERSION_NAME = 'Live Model'
       AND C_PL_CLASS = 'Headcount Costs'
-      AND TIME_MONTH_END BETWEEN '2026-06-01' AND '2027-01-31'
+      AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
     GROUP BY TIME_MONTH_END
     ORDER BY TIME_MONTH_END`,
 };
@@ -263,14 +263,15 @@ const CATEGORY_GROUPS = {
   'Technology': [
     'Adobe Creative Cloud', 'Adobe Systems, Inc.', 'Amazon Web Services - Asana', 'Asana', 'Asana, Inc.',
     'Canva', 'Meltwater', 'Open AI', 'Peerbound', 'Peerbound, Inc.', 'Postal.io', 'Postal.io, Inc.', 'Sprout Social',
+    'Athena', 'Anthropic',
   ],
   'PMM': ['AWS - G2', 'Amazon Web Services - G2', 'Klue', 'Tribyl', 'Tribyl, Inc'],
-  'PR': ['AZK Media', 'AZK Media (AUD)', 'Business Wire', 'Communique PR', 'Fourth Day Ltd', 'Newsweek', 'Digiday Media LLC', 'theCUBE'],
+  'PR': ['AZK Media', 'AZK Media (AUD)', 'Business Wire', 'Communique PR', 'Fourth Day Ltd', 'Newsweek', 'Digiday Media LLC', 'theCUBE', 'Skift, Inc.', 'AdExhanger'],
   'AR': ['Forrester Research, Inc.', 'Gartner Inc.', 'IDC Research Inc', 'Omdia'],
   'Content/Brand': [
     'Allytics', 'CDP Institute LLC', 'Customer Data Platform Institute LLC', 'George Hatton', 'Hookline', 'Monotype',
     'Monotype Imaging Inc', 'Raab Associates', 'Red Antler', 'Stephen States', 'Trustactics, LLC', 'Cody Newman',
-    'Phocuswright, Inc.', 'Phocuswright', 'Bow Jones',
+    'Phocuswright, Inc.', 'Phocuswright', 'Bow Jones', 'Cassidy Lubberts',
   ],
   'Field Marketing': [
     'Arktic Fox', 'Attentive Mobile Inc.', 'Canlis', 'Convene', 'Elise Edmonds Keefe',
@@ -281,12 +282,12 @@ const CATEGORY_GROUPS = {
     'AMAZON.COM (AMZN MKTP)', 'Adweek, LLC', 'Amanda Doan', 'Emily Norviel', 'Emma Caneva', 'Julia Wookey',
     'Brett Newcome', 'Moo.com', 'Sendoso', 'Sparks Exhibits and Environments', 'Nomo Soho', 'Lally Events, Inc.',
     'Pyramid Displays', 'Shoptalk Commerce LLC', '42 Analytics Educational Inc', 'Sender inc', 'IQPC',
-    'Lally Events', 'Rainfocus', 'Terrapinn', 'Bloomreach', 'DBX EMEA',
+    'Lally Events', 'Rainfocus', 'Terrapinn', 'Bloomreach', 'BloomReach B.V.', 'DBX EMEA',
   ],
   'Digital Demand & Paid Media': [
     'Google Adwords', 'GoTo', 'Industry Dive', 'Influ2', 'LinkedIn', 'Product Marketing Spend VC',
     'On24, Inc.', 'Survey Monkey', 'SurveyMonkey Inc', 'DemandCurveMarketing', 'DemandWorks Media', 'Digitalzone',
-    'Netline', 'Intentsify', 'Microsoft',
+    'Netline', 'Intentsify', 'Microsoft', 'YouTube',
   ],
   'Website': ['Contentful Cms', 'IMGIX', 'SEMrush', 'SENTRY', 'SpeedCurve', 'Vercel', 'Webless', 'Wingify Software Private Limited', 'Matomo'],
   'Partner Marketing': ['Credly', 'Credly Inc', 'Databricks', 'Slalom, LLC', 'Slalom, Inc.', 'RainFocus, LLC', 'Snowflake Inc.'],
@@ -296,6 +297,9 @@ const CATEGORY_MAP = {};
 for (const [cat, vendors] of Object.entries(CATEGORY_GROUPS)) {
   for (const v of vendors) CATEGORY_MAP[v.toLowerCase()] = cat;
 }
+// FedEx (Jun-26 actuals, Facilities/Office Supplies GL line) doesn't fit any of the 9
+// marketing-program categories — routed to the same catch-all as blank-vendor overhead rows.
+CATEGORY_MAP['fedex'] = 'Other / T&E & Overhead';
 
 const CATEGORY_COLORS = {
   'Technology': ['#dbeafe', '#1e40af'],
@@ -371,51 +375,47 @@ function preProcessHeadcount(actRows, fcRows) {
 // Headcount forecast is unaffected and still pulls from Live Model (see Q.marketingHeadcountForecast).
 const MARKETING_FORECAST_SNAPSHOT_DATE = '2026-07-06 (updated 15:07)';
 const MARKETING_FORECAST_FILE = {
-  'AWS - G2': { '2026-06-30': 2121, '2026-07-31': 2086, '2026-08-31': 2121, '2026-09-30': 2121, '2026-10-31': 2121, '2026-11-30': 2121, '2026-12-31': 2121, '2027-01-31': 2121 },
-  'AZK Media (AUD)': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
-  'Adobe Creative Cloud': { '2026-06-30': 1502, '2026-07-31': 1502, '2026-08-31': 1502, '2026-09-30': 1502, '2026-10-31': 1502, '2026-11-30': 1502, '2026-12-31': 1502, '2027-01-31': 1502 },
-  'Adobe Systems, Inc.': { '2026-06-30': 7705, '2026-07-31': 7705, '2026-08-31': 7705, '2026-09-30': 7705, '2026-10-31': 8068, '2026-11-30': 8068, '2026-12-31': 8068, '2027-01-31': 8068 },
-  'Amazon Web Services - Asana': { '2026-06-30': 1559, '2026-07-31': 1559, '2026-08-31': 1559, '2026-09-30': 1559, '2026-10-31': 1559, '2026-11-30': 1559, '2026-12-31': 1559, '2027-01-31': 1559 },
-  'Arktic Fox': { '2026-06-30': 1804, '2026-07-31': 1804, '2026-08-31': 1804, '2026-09-30': 1804, '2026-10-31': 1804, '2026-11-30': 1804, '2026-12-31': 1804, '2027-01-31': 1804 },
-  'Cody Newman': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
-  'Communique PR': { '2026-06-30': 25000, '2026-07-31': 25000, '2026-08-31': 25000, '2026-09-30': 25000, '2026-10-31': 25000, '2026-11-30': 25000, '2026-12-31': 25000, '2027-01-31': 25000 },
-  'Credly': { '2026-06-30': 230, '2026-07-31': 230, '2026-08-31': 230, '2026-09-30': 230, '2026-10-31': 230, '2026-11-30': 253, '2026-12-31': 253, '2027-01-31': 253 },
-  'Digitalzone': { '2026-06-30': 14000, '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
-  'Football Northwest LLC dba Seattle Seahawks': { '2026-06-30': 3500, '2026-07-31': 3500, '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
-  'Forrester Research, Inc.': { '2026-06-30': 11000, '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
-  'Fourth Day Ltd': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
-  'Gartner Inc.': { '2026-06-30': 52071, '2026-07-31': 22571, '2026-08-31': 22571, '2026-09-30': 22571, '2026-10-31': 22571, '2026-11-30': 22571, '2026-12-31': 9583, '2027-01-31': 22571 },
-  'George Hatton': { '2026-06-30': 14000, '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
-  'Google Adwords': { '2026-06-30': 40000, '2026-07-31': 40000, '2026-08-31': 40000, '2026-09-30': 40000, '2026-10-31': 40000, '2026-11-30': 40000, '2026-12-31': 40000, '2027-01-31': 40000 },
-  'IDC Research Inc': { '2026-06-30': 3676, '2026-07-31': 3676 },
+  'AWS - G2': { '2026-07-31': 2086, '2026-08-31': 2121, '2026-09-30': 2121, '2026-10-31': 2121, '2026-11-30': 2121, '2026-12-31': 2121, '2027-01-31': 2121 },
+  'AZK Media (AUD)': { '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
+  'Adobe Creative Cloud': { '2026-07-31': 1502, '2026-08-31': 1502, '2026-09-30': 1502, '2026-10-31': 1502, '2026-11-30': 1502, '2026-12-31': 1502, '2027-01-31': 1502 },
+  'Adobe Systems, Inc.': { '2026-07-31': 7705, '2026-08-31': 7705, '2026-09-30': 7705, '2026-10-31': 8068, '2026-11-30': 8068, '2026-12-31': 8068, '2027-01-31': 8068 },
+  'Amazon Web Services - Asana': { '2026-07-31': 1559, '2026-08-31': 1559, '2026-09-30': 1559, '2026-10-31': 1559, '2026-11-30': 1559, '2026-12-31': 1559, '2027-01-31': 1559 },
+  'Arktic Fox': { '2026-07-31': 1804, '2026-08-31': 1804, '2026-09-30': 1804, '2026-10-31': 1804, '2026-11-30': 1804, '2026-12-31': 1804, '2027-01-31': 1804 },
+  'Cody Newman': { '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
+  'Communique PR': { '2026-07-31': 25000, '2026-08-31': 25000, '2026-09-30': 25000, '2026-10-31': 25000, '2026-11-30': 25000, '2026-12-31': 25000, '2027-01-31': 25000 },
+  'Credly': { '2026-07-31': 230, '2026-08-31': 230, '2026-09-30': 230, '2026-10-31': 230, '2026-11-30': 253, '2026-12-31': 253, '2027-01-31': 253 },
+  'Digitalzone': { '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
+  'Football Northwest LLC dba Seattle Seahawks': { '2026-07-31': 3500, '2026-08-31': 3500, '2026-09-30': 3500, '2026-10-31': 3500, '2026-11-30': 3500, '2026-12-31': 3500, '2027-01-31': 3500 },
+  'Forrester Research, Inc.': { '2026-07-31': 11000, '2026-08-31': 11000, '2026-09-30': 11000, '2026-10-31': 11000, '2026-11-30': 11000, '2026-12-31': 11000, '2027-01-31': 11000 },
+  'Fourth Day Ltd': { '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
+  'Gartner Inc.': { '2026-07-31': 22571, '2026-08-31': 22571, '2026-09-30': 22571, '2026-10-31': 22571, '2026-11-30': 22571, '2026-12-31': 9583, '2027-01-31': 22571 },
+  'George Hatton': { '2026-07-31': 14000, '2026-08-31': 14000, '2026-09-30': 14000, '2026-10-31': 14000, '2026-11-30': 14000, '2026-12-31': 14000, '2027-01-31': 14000 },
+  'Google Adwords': { '2026-07-31': 40000, '2026-08-31': 40000, '2026-09-30': 40000, '2026-10-31': 40000, '2026-11-30': 40000, '2026-12-31': 40000, '2027-01-31': 40000 },
+  'IDC Research Inc': { '2026-07-31': 3676 },
   'IQPC': { '2026-07-31': 28356 },
-  'Industry Dive': { '2026-06-30': 14648 },
-  'Influ2': { '2026-06-30': 8652, '2026-07-31': 8940, '2026-08-31': 8940, '2026-09-30': 5191 },
-  'Lally Events': { '2026-06-30': 3348 },
-  'LinkedIn': { '2026-06-30': 25923, '2026-07-31': 35000, '2026-08-31': 35000, '2026-09-30': 35000, '2026-10-31': 35000, '2026-11-30': 35000, '2026-12-31': 35000, '2027-01-31': 35000 },
+  'Influ2': { '2026-07-31': 8940, '2026-08-31': 8940, '2026-09-30': 5191 },
+  'LinkedIn': { '2026-07-31': 35000, '2026-08-31': 35000, '2026-09-30': 35000, '2026-10-31': 35000, '2026-11-30': 35000, '2026-12-31': 35000, '2027-01-31': 35000 },
   'NRF National Retail Federation': { '2027-01-31': 65900 },
-  'Netline': { '2026-06-30': 7500, '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
-  'On24, Inc.': { '2026-06-30': 3130, '2026-07-31': 3130, '2026-08-31': 3130, '2026-09-30': 3130, '2026-10-31': 3130, '2026-11-30': 3130, '2026-12-31': 3287, '2027-01-31': 3287 },
-  'One Time FM Spend - Field Marketing': { '2026-06-30': 8394 },
-  'Open AI': { '2026-06-30': 450, '2026-07-31': 450, '2026-08-31': 450, '2026-09-30': 450, '2026-10-31': 450, '2026-11-30': 450, '2026-12-31': 450, '2027-01-31': 450 },
-  'Peerbound': { '2026-06-30': 2207, '2026-07-31': 2427.7, '2026-08-31': 2427.7, '2026-09-30': 2427.7, '2026-10-31': 2427.7, '2026-11-30': 2427.7, '2026-12-31': 2427.7, '2027-01-31': 2427.7 },
+  'Netline': { '2026-07-31': 7500, '2026-08-31': 7500, '2026-09-30': 7500, '2026-10-31': 7500, '2026-11-30': 7500, '2026-12-31': 7500, '2027-01-31': 7500 },
+  'On24, Inc.': { '2026-07-31': 3130, '2026-08-31': 3130, '2026-09-30': 3130, '2026-10-31': 3130, '2026-11-30': 3130, '2026-12-31': 3287, '2027-01-31': 3287 },
+  'Open AI': { '2026-07-31': 450, '2026-08-31': 450, '2026-09-30': 450, '2026-10-31': 450, '2026-11-30': 450, '2026-12-31': 450, '2027-01-31': 450 },
+  'Peerbound': { '2026-07-31': 2427.7, '2026-08-31': 2427.7, '2026-09-30': 2427.7, '2026-10-31': 2427.7, '2026-11-30': 2427.7, '2026-12-31': 2427.7, '2027-01-31': 2427.7 },
   'Phocuswright': { '2026-09-30': 8291, '2026-10-31': 8291, '2026-11-30': 8291, '2026-12-31': 8291 },
-  'Point of Loyalty': { '2026-06-30': 1630, '2026-07-31': 1630, '2026-08-31': 1630, '2026-09-30': 1630, '2026-10-31': 1630, '2026-11-30': 1630, '2026-12-31': 1630, '2027-01-31': 1630 },
-  'Popl': { '2026-06-30': 966, '2026-07-31': 966, '2026-08-31': 966, '2026-09-30': 966, '2026-10-31': 966, '2026-11-30': 966, '2026-12-31': 966, '2027-01-31': 966 },
-  'QR.io': { '2026-06-30': 35, '2026-07-31': 35, '2026-08-31': 35, '2026-09-30': 35, '2026-10-31': 35, '2026-11-30': 35, '2026-12-31': 35, '2027-01-31': 35 },
-  'Rainfocus': { '2026-06-30': 325000 },
-  'SEMrush': { '2026-06-30': 253, '2026-07-31': 253, '2026-08-31': 253, '2026-09-30': 253, '2026-10-31': 253, '2026-11-30': 253, '2026-12-31': 253, '2027-01-31': 253 },
-  'SENTRY': { '2026-06-30': 98, '2026-07-31': 98, '2026-08-31': 98, '2026-09-30': 98, '2026-10-31': 98, '2026-11-30': 98, '2026-12-31': 98, '2027-01-31': 98 },
-  'Sendoso': { '2026-06-30': 1927, '2026-07-31': 1927, '2026-08-31': 1927, '2026-09-30': 1927, '2026-10-31': 1927, '2026-11-30': 1927, '2026-12-31': 1927, '2027-01-31': 1927 },
-  'SpeedCurve': { '2026-06-30': 114, '2026-07-31': 114, '2026-08-31': 114, '2026-09-30': 114, '2026-10-31': 114, '2026-11-30': 114, '2026-12-31': 114, '2027-01-31': 114 },
-  'Sprout Social': { '2026-06-30': 500, '2026-07-31': 500, '2026-08-31': 500, '2026-09-30': 500, '2026-10-31': 500, '2026-11-30': 500, '2026-12-31': 500, '2027-01-31': 500 },
-  'Survey Monkey': { '2026-06-30': 1655, '2026-07-31': 1655, '2026-08-31': 1655, '2026-09-30': 1655, '2026-10-31': 1820.5, '2026-11-30': 1820.5, '2026-12-31': 1820.5, '2027-01-31': 1820.5 },
-  'The Seattle Mariners': { '2026-06-30': 8750, '2026-07-31': 8750, '2026-08-31': 8750, '2026-09-30': 8750, '2026-10-31': 8750, '2026-11-30': 8750, '2026-12-31': 8750, '2027-01-31': 8750 },
-  'Tribyl': { '2026-06-30': 1102, '2026-07-31': 1102, '2026-08-31': 1212.2, '2026-09-30': 1212.2, '2026-10-31': 1212.2, '2026-11-30': 1212.2, '2026-12-31': 1212.2, '2027-01-31': 1212.2 },
-  'Trustactics, LLC': { '2026-06-30': 833, '2026-07-31': 833, '2026-08-31': 833, '2026-09-30': 833, '2026-10-31': 833, '2026-11-30': 833, '2026-12-31': 833, '2027-01-31': 833 },
-  'Vendelux': { '2026-06-30': 4151, '2026-07-31': 4151, '2026-08-31': 4151, '2026-09-30': 4151, '2026-10-31': 4151, '2026-11-30': 4151, '2026-12-31': 4151, '2027-01-31': 4151 },
-  'Webless': { '2026-06-30': 2002, '2026-07-31': 2002, '2026-08-31': 2002, '2026-09-30': 2002, '2026-10-31': 2202.2, '2026-11-30': 2202.2, '2026-12-31': 2202.2, '2027-01-31': 2202.2 },
-  'Wingify Software Private Limited': { '2026-06-30': 1638, '2026-07-31': 1638, '2026-08-31': 1289, '2026-09-30': 1721, '2026-10-31': 1721, '2026-11-30': 1721, '2026-12-31': 1721, '2027-01-31': 1721 },
+  'Point of Loyalty': { '2026-07-31': 1630, '2026-08-31': 1630, '2026-09-30': 1630, '2026-10-31': 1630, '2026-11-30': 1630, '2026-12-31': 1630, '2027-01-31': 1630 },
+  'Popl': { '2026-07-31': 966, '2026-08-31': 966, '2026-09-30': 966, '2026-10-31': 966, '2026-11-30': 966, '2026-12-31': 966, '2027-01-31': 966 },
+  'QR.io': { '2026-07-31': 35, '2026-08-31': 35, '2026-09-30': 35, '2026-10-31': 35, '2026-11-30': 35, '2026-12-31': 35, '2027-01-31': 35 },
+  'SEMrush': { '2026-07-31': 253, '2026-08-31': 253, '2026-09-30': 253, '2026-10-31': 253, '2026-11-30': 253, '2026-12-31': 253, '2027-01-31': 253 },
+  'SENTRY': { '2026-07-31': 98, '2026-08-31': 98, '2026-09-30': 98, '2026-10-31': 98, '2026-11-30': 98, '2026-12-31': 98, '2027-01-31': 98 },
+  'Sendoso': { '2026-07-31': 1927, '2026-08-31': 1927, '2026-09-30': 1927, '2026-10-31': 1927, '2026-11-30': 1927, '2026-12-31': 1927, '2027-01-31': 1927 },
+  'SpeedCurve': { '2026-07-31': 114, '2026-08-31': 114, '2026-09-30': 114, '2026-10-31': 114, '2026-11-30': 114, '2026-12-31': 114, '2027-01-31': 114 },
+  'Sprout Social': { '2026-07-31': 500, '2026-08-31': 500, '2026-09-30': 500, '2026-10-31': 500, '2026-11-30': 500, '2026-12-31': 500, '2027-01-31': 500 },
+  'Survey Monkey': { '2026-07-31': 1655, '2026-08-31': 1655, '2026-09-30': 1655, '2026-10-31': 1820.5, '2026-11-30': 1820.5, '2026-12-31': 1820.5, '2027-01-31': 1820.5 },
+  'The Seattle Mariners': { '2026-07-31': 8750, '2026-08-31': 8750, '2026-09-30': 8750, '2026-10-31': 8750, '2026-11-30': 8750, '2026-12-31': 8750, '2027-01-31': 8750 },
+  'Tribyl': { '2026-07-31': 1102, '2026-08-31': 1212.2, '2026-09-30': 1212.2, '2026-10-31': 1212.2, '2026-11-30': 1212.2, '2026-12-31': 1212.2, '2027-01-31': 1212.2 },
+  'Trustactics, LLC': { '2026-07-31': 833, '2026-08-31': 833, '2026-09-30': 833, '2026-10-31': 833, '2026-11-30': 833, '2026-12-31': 833, '2027-01-31': 833 },
+  'Vendelux': { '2026-07-31': 4151, '2026-08-31': 4151, '2026-09-30': 4151, '2026-10-31': 4151, '2026-11-30': 4151, '2026-12-31': 4151, '2027-01-31': 4151 },
+  'Webless': { '2026-07-31': 2002, '2026-08-31': 2002, '2026-09-30': 2002, '2026-10-31': 2202.2, '2026-11-30': 2202.2, '2026-12-31': 2202.2, '2027-01-31': 2202.2 },
+  'Wingify Software Private Limited': { '2026-07-31': 1638, '2026-08-31': 1289, '2026-09-30': 1721, '2026-10-31': 1721, '2026-11-30': 1721, '2026-12-31': 1721, '2027-01-31': 1721 },
 };
 
 function mergeForecastFile(byVendorMonth) {
@@ -435,10 +435,8 @@ function mergeForecastFile(byVendorMonth) {
 // mrp_prepaid_spend so they don't silently disappear again. If a future Adaptive
 // refresh picks these up, remove the matching entry here to avoid double-counting.
 const PREPAID_GAP_ADDITIONS = {
-  'Snowflake Inc.': { '2026-06-30': 160297.50 },
-  'Nomo Soho': { '2026-06-30': 23643.49 },
-  'Sender inc': { '2026-06-30': 1927.11, '2026-07-31': 1927.11, '2026-08-31': 1927.11, '2026-09-30': 1927.11, '2026-10-31': 1927.11, '2026-11-30': 1927.11, '2026-12-31': 1927.11, '2027-01-31': 1927.11 },
-  'Meltwater': { '2026-06-30': 1465.54, '2026-07-31': 1940.54, '2026-08-31': 1940.54, '2026-09-30': 1940.54, '2026-10-31': 1940.54, '2026-11-30': 1940.54, '2026-12-31': 1940.54, '2027-01-31': 1940.54 },
+  'Sender inc': { '2026-07-31': 1927.11, '2026-08-31': 1927.11, '2026-09-30': 1927.11, '2026-10-31': 1927.11, '2026-11-30': 1927.11, '2026-12-31': 1927.11, '2027-01-31': 1927.11 },
+  'Meltwater': { '2026-07-31': 1940.54, '2026-08-31': 1940.54, '2026-09-30': 1940.54, '2026-10-31': 1940.54, '2026-11-30': 1940.54, '2026-12-31': 1940.54, '2027-01-31': 1940.54 },
   'Pyramid Displays': { '2026-07-31': 1862.94 },
 };
 
@@ -456,7 +454,6 @@ function mergePrepaidGapAdditions(byVendorMonth) {
 // live Snowflake source. Added directly so they don't go missing from the forecast.
 const MANUAL_CONTRACT_ADDITIONS = {
   'Terrapinn': { '2026-10-31': 54178 },
-  'Bloomreach': { '2026-06-30': 2770.10 },
   'DBX EMEA': { '2026-11-30': 40000, '2026-12-31': 35000 },
 };
 
