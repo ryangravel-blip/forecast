@@ -365,16 +365,28 @@ const Q_KPI = `
   SELECT VERSION_NAME, TIME_MONTH_END, ACCOUNT_CODE, SUM(VALUE) AS AMOUNT
   FROM load.finance_sandbox.mrp_forecast
   WHERE ACCOUNT_CODE IN ('KPI.NewARR','KPI.ExpansionARR','KPI.Downsell_Churn',
-                         'KPI.Exiting_ARR','Adjusted_CF','Cash_EOP','Total_HC_EOM')
+                         'KPI.Exiting_ARR','Adjusted_CF','Cash_EOP','Total_HC_EOM',
+                         'billcollect.billings','billcollect.collections')
     AND (
       (VERSION_NAME = '2026.3.6 - FY27 Final BoD Approved'
         AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31')
       OR
       (VERSION_NAME = 'Live Model'
-        AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31')
+        AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2028-01-31')
     )
   GROUP BY VERSION_NAME, TIME_MONTH_END, ACCOUNT_CODE
   ORDER BY VERSION_NAME, ACCOUNT_CODE, TIME_MONTH_END`;
+
+// FY28 revenue + expense from Live Model (Feb 2027–Jan 2028)
+const Q_FY28 = `
+  SELECT COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
+    COALESCE(C_EXPENSE_CATEGORY,'') AS CAT, COALESCE(C_REVENUE,'') AS C_REVENUE,
+    COALESCE(ACCOUNT_CODE,'') AS ACCOUNT_CODE, SUM(VALUE) AS AMOUNT
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND TIME_MONTH_END BETWEEN '2027-02-01' AND '2028-01-31'
+    AND C_PL_INCLUDE = 1
+  GROUP BY C_PARENT_DEPT, C_PL_CLASS, C_EXPENSE_CATEGORY, C_REVENUE, ACCOUNT_CODE`;
 
 // Cash actuals: Jan–May monthly balances, Cash + Equity categories
 const Q_CASH = `
@@ -712,6 +724,91 @@ function processBillings(rows) {
 }
 
 // ─── TABLE HELPERS ────────────────────────────────────
+// ─── EXEC SUMMARY HELPERS (FY27 Bud | FY27 Fcst | vs Bud | FY28 Plan | vs FY27 Fcst) ──
+function makeHeadExec(labelW='220px') {
+  const sp = '<th class="hdr-spacer"></th>';
+  return `
+  <tr class="group-header">
+    <th class="label-col hdr-lbl" style="width:${labelW}"></th>
+    ${sp}<th class="hdr-bud">FY27 BoD Budget</th>
+    ${sp}<th class="hdr-fcst">FY27 Forecast</th>
+    ${sp}<th class="hdr-var" colspan="2">vs Budget</th>
+    ${sp}<th style="background:#1e3a5f;color:#e2e8f0;text-align:center">FY28 Plan</th>
+    ${sp}<th colspan="2" style="background:#1a3a2e;color:#e2e8f0;text-align:center">vs FY27 Fcst</th>
+  </tr>
+  <tr class="col-header">
+    <th class="label-col" style="width:${labelW}">($K)</th>
+    ${sp}<th class="col-bud">BoD Approved</th>
+    ${sp}<th class="col-fcst divider-left">Live Model</th>
+    ${sp}<th class="col-vd divider-left">$ Var</th><th class="col-vp">% Var</th>
+    ${sp}<th style="background:#eef3fb;color:#374151;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;text-align:right;padding:6px 10px">Live Model</th>
+    ${sp}<th style="background:#edfbf3;color:#374151;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;text-align:right;padding:6px 10px">$ Var</th>
+    <th style="background:#edfbf3;color:#374151;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;text-align:right;padding:6px 10px">% Var</th>
+  </tr>`;
+}
+
+function erow(label, bud27, fcst27, plan28, opts={}) {
+  const { cls='', lc='label-col', varDir=1, pctFn=PCT } = opts;
+  const sp = '<td class="hdr-spacer"></td>';
+  const vBud = fcst27-bud27, vpBud = bud27!==0?vBud/Math.abs(bud27):null;
+  const vcBud = varClass(fcst27, bud27, varDir);
+  const has28 = plan28 !== null && plan28 !== undefined;
+  const vFcst = has28 ? plan28-fcst27 : null;
+  const vpFcst = has28 && fcst27!==0 ? vFcst/Math.abs(fcst27) : null;
+  const vcFcst = has28 ? varClass(plan28, fcst27, varDir) : '';
+  const bg28 = '#eef3fb', bgV28 = '#edfbf3';
+  return `<tr class="${cls}">
+    <td class="${lc}">${label}</td>
+    ${sp}<td class="col-bud">${KD(bud27/1e3)}</td>
+    ${sp}<td class="col-fcst divider-left">${KD(fcst27/1e3)}</td>
+    ${sp}<td class="col-vd divider-left ${vcBud}">${KD(vBud/1e3)}</td>
+    <td class="col-vp ${vcBud}">${pctFn(vpBud)}</td>
+    ${sp}<td style="background:${bg28};text-align:right;padding:6px 10px">${has28?KD(plan28/1e3):'—'}</td>
+    ${sp}<td class="${vcFcst}" style="background:${bgV28};text-align:right;padding:6px 10px">${vFcst!==null?KD(vFcst/1e3):'—'}</td>
+    <td class="${vcFcst}" style="background:${bgV28};text-align:right;padding:6px 10px">${vpFcst!==null?pctFn(vpFcst):'—'}</td>
+  </tr>`;
+}
+
+function erowPct(label, bPct, fPct, p28Pct, opts={}) {
+  const { cls='', lc='label-col', varDir=1 } = opts;
+  const sp = '<td class="hdr-spacer"></td>';
+  const vBud = fPct-bPct, vcBud = varClass(fPct, bPct, varDir);
+  const has28 = p28Pct !== null && p28Pct !== undefined;
+  const vFcst = has28 ? p28Pct-fPct : null;
+  const vcFcst = has28 ? varClass(p28Pct, fPct, varDir) : '';
+  const fmt = v => (v===null||isNaN(v))?'—':N(v*100,1)+'%';
+  const bg28 = '#eef3fb', bgV28 = '#edfbf3';
+  return `<tr class="${cls}">
+    <td class="${lc}">${label}</td>
+    ${sp}<td class="col-bud">${fmt(bPct)}</td>
+    ${sp}<td class="col-fcst divider-left">${fmt(fPct)}</td>
+    ${sp}<td class="col-vd divider-left ${vcBud}">${PP(vBud)}</td><td class="col-vp ${vcBud}"></td>
+    ${sp}<td style="background:${bg28};text-align:right;padding:6px 10px">${has28?fmt(p28Pct):'—'}</td>
+    ${sp}<td class="${vcFcst}" style="background:${bgV28};text-align:right;padding:6px 10px">${vFcst!==null?PP(vFcst):'—'}</td>
+    <td class="${vcFcst}" style="background:${bgV28};text-align:right;padding:6px 10px"></td>
+  </tr>`;
+}
+
+function erowHC(label, bud27, fcst27, plan28) {
+  const sp = '<td class="hdr-spacer"></td>';
+  const vBud = Math.round(fcst27-bud27), vcBud = varClass(fcst27, bud27, -1);
+  const has28 = plan28 !== null && plan28 !== undefined;
+  const vFcst = has28 ? Math.round(plan28-fcst27) : null;
+  const vcFcst = has28 ? varClass(plan28, fcst27, -1) : '';
+  const fmt = v => (v==null||isNaN(v))?'—':N(Math.round(v));
+  const fmtV = v => v===null?'—':(v>=0?'+'+v:String(v));
+  const bg28 = '#eef3fb', bgV28 = '#edfbf3';
+  return `<tr>
+    <td class="label-col">${label}</td>
+    ${sp}<td class="col-bud">${fmt(bud27)}</td>
+    ${sp}<td class="col-fcst divider-left">${fmt(fcst27)}</td>
+    ${sp}<td class="col-vd divider-left ${vcBud}">${fmtV(bud27?vBud:null)}</td><td class="col-vp ${vcBud}"></td>
+    ${sp}<td style="background:${bg28};text-align:right;padding:6px 10px">${has28?fmt(plan28):'—'}</td>
+    ${sp}<td class="${vcFcst}" style="background:${bgV28};text-align:right;padding:6px 10px">${fmtV(vFcst)}</td>
+    <td class="${vcFcst}" style="background:${bgV28};text-align:right;padding:6px 10px"></td>
+  </tr>`;
+}
+
 function makeHead(labelW='220px') {
   return `
   <tr class="group-header">
@@ -776,83 +873,100 @@ function rowHC(label, budHC, fcstHC) {
 }
 
 // ─── BUILD EXEC SUMMARY ───────────────────────────────
-function buildExec(bud, fcst, arr, kpi, cash, billings) {
-  const budRevTotal  = bud.revTotal();
-  const fcstRevTotal = fcst.revTotal();
-  const budExpTotal  = bud.expAllDepts();
-  const fcstExpTotal = fcst.expAllDepts();
-  const budEbitda    = budRevTotal  - budExpTotal;
-  const fcstEbitda   = fcstRevTotal - fcstExpTotal;
+function buildExec(bud, fcst, arr, kpi, cash, billings, fy28) {
+  // ── FY27 ──────────────────────────────────────────────
+  const FY_START='2026-02-01', FY_END='2027-01-31', LM_START='2026-07-01', JAN27='2027-01-31';
+  // ── FY28 ──────────────────────────────────────────────
+  const FY28_START='2027-02-01', FY28_END='2028-01-31', JAN28='2028-01-31';
+  const NC = 13;
 
-  // ARR: actuals Feb–Jun + Live Model Jul–Jan
-  const FY_START='2026-02-01', FY_END='2027-01-31';
-  const ACT_END='2026-06-30', LM_START='2026-07-01';
-  const JAN27='2027-01-31';
+  // Revenue
+  const budRev  = bud.revTotal(),  fcstRev  = fcst.revTotal(),  fy28Rev  = fy28.revTotal();
+  const budExp  = bud.expAllDepts(), fcstExp = fcst.expAllDepts(), fy28Exp = fy28.expAllDepts();
+  const budEbitda  = budRev  - budExp;
+  const fcstEbitda = fcstRev - fcstExp;
+  const fy28Ebitda = fy28Rev - fy28Exp;
 
-  const budNewArr    = kpi.budFlow('KPI.NewARR',       FY_START, FY_END);
-  const budExpArr    = kpi.budFlow('KPI.ExpansionARR', FY_START, FY_END);
-  const budChurn     = kpi.budFlow('KPI.Downsell_Churn',FY_START,FY_END);
-  const budEopArr    = kpi.budEop('KPI.Exiting_ARR',   JAN27);
+  // ARR FY27
+  const budNewArr  = kpi.budFlow('KPI.NewARR',          FY_START, FY_END);
+  const budExpArr  = kpi.budFlow('KPI.ExpansionARR',    FY_START, FY_END);
+  const budChurn   = kpi.budFlow('KPI.Downsell_Churn',  FY_START, FY_END);
+  const budEopArr  = kpi.budEop('KPI.Exiting_ARR',      JAN27);
+  const fcstNewArr = arr.newArr + kpi.liveFlow('KPI.NewARR',         LM_START, FY_END);
+  const fcstExpArr = arr.expArr + kpi.liveFlow('KPI.ExpansionARR',   LM_START, FY_END);
+  const fcstChurn  = arr.churn  + kpi.liveFlow('KPI.Downsell_Churn', LM_START, FY_END);
+  const fcstEopArr = kpi.liveEop('KPI.Exiting_ARR', JAN27);
+  // ARR FY28
+  const fy28NewArr = kpi.liveFlow('KPI.NewARR',         FY28_START, FY28_END);
+  const fy28ExpArr = kpi.liveFlow('KPI.ExpansionARR',   FY28_START, FY28_END);
+  const fy28Churn  = kpi.liveFlow('KPI.Downsell_Churn', FY28_START, FY28_END);
+  const fy28EopArr = kpi.liveEop('KPI.Exiting_ARR', JAN28);
 
-  // Forecast ARR = actuals (Feb–Jun) + Live Model (Jul–Jan)
-  const fcstNewArr   = arr.newArr + kpi.liveFlow('KPI.NewARR',       LM_START, FY_END);
-  const fcstExpArr   = arr.expArr + kpi.liveFlow('KPI.ExpansionARR', LM_START, FY_END);
-  const fcstChurn    = arr.churn  + kpi.liveFlow('KPI.Downsell_Churn',LM_START,FY_END);
-  const fcstEopArr   = kpi.liveEop('KPI.Exiting_ARR', JAN27);
-
-  // Cash Burn FY27: total change in cash
-  // Budget: SUM of Adjusted_CF over FY27 from BoD
-  // Forecast: actual burn Feb–Jun (Jun balance - Jan balance, Cash+Equity) + Live Model Adjusted_CF Jul–Jan
+  // Cash FY27
   const budCashBurn  = kpi.budFlow('Adjusted_CF', FY_START, FY_END);
   const actCashBurn  = cash.latest - cash.bop;
   const fcstCashBurn = actCashBurn + kpi.liveFlow('Adjusted_CF', LM_START, FY_END);
-
-  // Ending Cash Jan '27
   const budCashEop   = kpi.budEop('Cash_EOP',  JAN27);
   const fcstCashEop  = kpi.liveEop('Cash_EOP', JAN27);
+  // Cash FY28
+  const fy28CashBurn = kpi.liveFlow('Adjusted_CF', FY28_START, FY28_END);
+  const fy28CashEop  = kpi.liveEop('Cash_EOP', JAN28);
 
-  // Headcount year-end Jan '27
-  const budHC        = kpi.budEop('Total_HC_EOM',  JAN27);
-  const fcstHC       = kpi.liveEop('Total_HC_EOM', JAN27);
+  // Billings & Collections
+  // Budget = full FY27 BoD; Forecast = YTD actuals + RoY Live Model
+  const budBill  = kpi.budFlow('billcollect.billings',    FY_START, FY_END);
+  const budColl  = kpi.budFlow('billcollect.collections', FY_START, FY_END);
+  const fcstBill = billings.ytdBill + kpi.liveFlow('billcollect.billings',    LM_START, FY_END);
+  const fcstColl = billings.ytdColl + kpi.liveFlow('billcollect.collections', LM_START, FY_END);
+  const fy28Bill = kpi.liveFlow('billcollect.billings',    FY28_START, FY28_END);
+  const fy28Coll = kpi.liveFlow('billcollect.collections', FY28_START, FY28_END);
+
+  // Headcount
+  const budHC  = kpi.budEop('Total_HC_EOM', JAN27);
+  const fcstHC = kpi.liveEop('Total_HC_EOM', JAN27);
+  const fy28HC = kpi.liveEop('Total_HC_EOM', JAN28);
 
   let h = '';
-  h += secRow('ARR');
-  h += row('New ARR',            budNewArr,        fcstNewArr,        { varDir:  1 });
-  h += row('Expansion ARR',      budExpArr,        fcstExpArr,        { varDir:  1 });
-  h += row('New + Expansion ARR',budNewArr+budExpArr, fcstNewArr+fcstExpArr, { cls:'row-subtotal', varDir: 1 });
-  h += row('Churn / Downsell',   budChurn,         fcstChurn,         { varDir: -1 });
-  h += row('EOP ARR (Jan \'27)', budEopArr,        fcstEopArr,        { cls:'row-subtotal', varDir: 1 });
-  h += spacer();
 
-  h += secRow('Revenue');
-  h += row('Total Revenue',      budRevTotal,      fcstRevTotal,      { cls:'row-subtotal', varDir: 1 });
+  h += secRow('ARR', NC);
+  h += erow('New ARR',             budNewArr, fcstNewArr, fy28NewArr, { varDir: 1 });
+  h += erow('Expansion ARR',       budExpArr, fcstExpArr, fy28ExpArr, { varDir: 1 });
+  h += erow('New + Expansion ARR', budNewArr+budExpArr, fcstNewArr+fcstExpArr, fy28NewArr+fy28ExpArr, { cls:'row-subtotal', varDir: 1 });
+  h += erow('Churn / Downsell',    budChurn,  fcstChurn,  fy28Churn,  { varDir: -1 });
+  h += erow('EOP ARR',             budEopArr, fcstEopArr, fy28EopArr, { cls:'row-subtotal', varDir: 1 });
+  h += spacer(NC);
+
+  h += secRow('Revenue', NC);
+  h += erow('Total Revenue', budRev, fcstRev, fy28Rev, { cls:'row-subtotal', varDir:1 });
   for (const rt of ['Subscription Revenue','Consumption Revenue','Services Revenue']) {
-    const b=bud.revSum(rt), f=fcst.revSum(rt);
-    if (Math.abs(b)+Math.abs(f)>100) h += row(rt, b, f, { lc:'label-indent', varDir: 1 });
+    const b=bud.revSum(rt), f=fcst.revSum(rt), p=fy28.revSum(rt);
+    if (Math.abs(b)+Math.abs(f)+Math.abs(p)>100)
+      h += erow(rt, b, f, p, { lc:'label-indent', varDir:1 });
   }
-  h += spacer();
+  h += spacer(NC);
 
-  h += secRow('Expenses & Profitability');
-  h += row('Total Expense',      budExpTotal,      fcstExpTotal,      { varDir: -1 });
-  h += row('EBITDA',             budEbitda,        fcstEbitda,        { cls:'row-subtotal', varDir: 1 });
-  h += rowPct('EBITDA Margin %',
-    budRevTotal  ? budEbitda  / budRevTotal  : 0,
-    fcstRevTotal ? fcstEbitda / fcstRevTotal : 0,
-    { cls:'row-margin', lc:'label-indent', varDir: 1 });
-  h += row('Cash Burn (FY27)',   budCashBurn,      fcstCashBurn,      { varDir: 1 });
-  h += spacer();
+  h += secRow('Expenses & Profitability', NC);
+  h += erow('Total Expense', budExp,    fcstExp,    fy28Exp,    { varDir:-1 });
+  h += erow('EBITDA',        budEbitda, fcstEbitda, fy28Ebitda, { cls:'row-subtotal', varDir:1 });
+  h += erowPct('EBITDA Margin %',
+    budRev  ? budEbitda/budRev   : 0,
+    fcstRev ? fcstEbitda/fcstRev : 0,
+    fy28Rev ? fy28Ebitda/fy28Rev : 0,
+    { cls:'row-margin', lc:'label-indent', varDir:1 });
+  h += erow('Cash Burn',        budCashBurn, fcstCashBurn, fy28CashBurn, { varDir:1 });
+  h += erow('Cash Balance EOP', budCashEop,  fcstCashEop,  fy28CashEop,  { cls:'row-subtotal', varDir:1 });
+  h += spacer(NC);
 
-  h += secRow('Billings & Collections');
-  h += row('Billings (YTD Actuals)',    0, billings.ytdBill,   { varDir:1, pctFn:()=>'' });
-  h += row('Collections (YTD Actuals)', 0, billings.ytdColl,   { varDir:1, pctFn:()=>'' });
-  h += spacer();
+  h += secRow('Billings & Collections', NC);
+  h += erow('Billings',    budBill, fcstBill, fy28Bill, { varDir:1 });
+  h += erow('Collections', budColl, fcstColl, fy28Coll, { varDir:1 });
+  h += spacer(NC);
 
-  h += secRow('Headcount');
-  h += rowHC('Total HC (EOP Jan \'27)', budHC, fcstHC);
+  h += secRow('Headcount', NC);
+  h += erowHC("Total HC (EOP)", budHC, fcstHC, fy28HC);
 
   document.getElementById('execBody').innerHTML = h;
 }
-
 // ─── BUILD P&L BY DEPARTMENT ─────────────────────────
 function buildPL(bud, fcst) {
   const COGS=['COGS: Infrastructure','COGS: Services'];
@@ -1941,7 +2055,7 @@ async function init() {
     // Phase 1: core queries (13) — run concurrently
     const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
            histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
-           billRows, revTypeActRows, revTypeLiveRows] = await Promise.all([
+           billRows, revTypeActRows, revTypeLiveRows, fy28Rows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -1958,6 +2072,7 @@ async function init() {
       execSQL(Q_BILLINGS),
       execSQL(Q_REV_BY_TYPE_ACT),
       execSQL(Q_REV_BY_TYPE_LIVE),
+      execSQL(Q_FY28),
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -1969,6 +2084,7 @@ async function init() {
     const cash   = processCash(cashRows);
     const hist   = processHistorical(histPLRows, histARRRows, histCashRows);
     const billings = processBillings(billRows);
+    const fy28   = makeAccessors(processForcast(fy28Rows));
     const revTypeRows = [
       ...revTypeActRows.map(r => ({ DT: r.DT, REV_TYPE: r.REV_TYPE, REVENUE: r.REVENUE })),
       ...revTypeLiveRows.map(r => ({ DT: r.DT, REV_TYPE: r.REV_TYPE, REVENUE: r.REVENUE })),
@@ -1979,10 +2095,10 @@ async function init() {
       ...mlRows.map(r => ({ dt: r.DT.slice(0,10), rev: +(r.REVENUE||0), exp: +(r.EXPENSE||0), src: 'model' }))
     ];
 
-    document.getElementById('execHead').innerHTML = makeHead('220px');
+    document.getElementById('execHead').innerHTML = makeHeadExec('220px');
     document.getElementById('deptHead').innerHTML = makeHead('220px');
 
-    buildExec(bud, blended, arr, kpi, cash, billings);
+    buildExec(bud, blended, arr, kpi, cash, billings, fy28);
     buildPL(bud, blended);
     buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows, revTypeRows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings);
