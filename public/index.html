@@ -366,7 +366,7 @@ const Q_KPI = `
   FROM load.finance_sandbox.mrp_forecast
   WHERE ACCOUNT_CODE IN ('KPI.NewARR','KPI.ExpansionARR','KPI.Downsell_Churn',
                          'KPI.Exiting_ARR','Adjusted_CF','Cash_EOP','Total_HC_EOM',
-                         'billcollect.billings','billcollect.collections')
+                         'BillFall.TotalBillingsActuals','BillFall.TotalCollections')
     AND (
       (VERSION_NAME = '2026.3.6 - FY27 Final BoD Approved'
         AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31')
@@ -913,13 +913,14 @@ function buildExec(bud, fcst, arr, kpi, cash, billings, fy28) {
   const fy28CashEop  = kpi.liveEop('Cash_EOP', JAN28);
 
   // Billings & Collections
-  // Budget = full FY27 BoD; Forecast = YTD actuals + RoY Live Model
-  const budBill  = kpi.budFlow('billcollect.billings',    FY_START, FY_END);
-  const budColl  = kpi.budFlow('billcollect.collections', FY_START, FY_END);
-  const fcstBill = billings.ytdBill + kpi.liveFlow('billcollect.billings',    LM_START, FY_END);
-  const fcstColl = billings.ytdColl + kpi.liveFlow('billcollect.collections', LM_START, FY_END);
-  const fy28Bill = kpi.liveFlow('billcollect.billings',    FY28_START, FY28_END);
-  const fy28Coll = kpi.liveFlow('billcollect.collections', FY28_START, FY28_END);
+  // Budget/FY28 = full year from mrp_forecast; FY27 Forecast = YTD actuals + RoY Live Model
+  // Collections stored negative in Snowflake → negate to show as positive
+  const budBill  =        kpi.budFlow('BillFall.TotalBillingsActuals', FY_START,   FY_END);
+  const budColl  = -1   * kpi.budFlow('BillFall.TotalCollections',     FY_START,   FY_END);
+  const fcstBill = billings.ytdBill + kpi.liveFlow('BillFall.TotalBillingsActuals', LM_START, FY_END);
+  const fcstColl = billings.ytdColl + (-1 * kpi.liveFlow('BillFall.TotalCollections', LM_START, FY_END));
+  const fy28Bill =        kpi.liveFlow('BillFall.TotalBillingsActuals', FY28_START, FY28_END);
+  const fy28Coll = -1   * kpi.liveFlow('BillFall.TotalCollections',     FY28_START, FY28_END);
 
   // Headcount
   const budHC  = kpi.budEop('Total_HC_EOM', JAN27);
