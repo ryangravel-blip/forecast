@@ -2055,7 +2055,8 @@ async function init() {
     // Phase 1: core queries (13) — run concurrently
     const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
            histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
-           billRows, revTypeActRows, revTypeLiveRows, fy28Rows] = await Promise.all([
+           billRows, revTypeActRows, revTypeLiveRows, fy28Rows,
+           deptBudRows, deptFy28Rows, revBudRows, revFy28Rows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -2073,6 +2074,10 @@ async function init() {
       execSQL(Q_REV_BY_TYPE_ACT),
       execSQL(Q_REV_BY_TYPE_LIVE),
       execSQL(Q_FY28),
+      execSQL(Q_QTR_DEPT_BUD),
+      execSQL(Q_QTR_DEPT_FY28),
+      execSQL(Q_QTR_REV_BUD),
+      execSQL(Q_QTR_REV_FY28),
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -2100,7 +2105,7 @@ async function init() {
 
     buildExec(bud, blended, arr, kpi, cash, billings, fy28);
     buildPL(bud, blended, fy28);
-    buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows, revTypeRows);
+    buildQtrDept(deptActRows, deptLiveRows, deptBudRows, deptFy28Rows, monthlyRevRows, revTypeRows, revBudRows, revFy28Rows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings);
 
