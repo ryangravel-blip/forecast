@@ -261,7 +261,7 @@
       <div style="overflow-x:auto">
         <table class="data-table">
           <thead id="deptHead"></thead>
-          <tbody id="deptBody"><tr><td class="label-col" colspan="8" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+          <tbody id="deptBody"><tr><td class="label-col" colspan="13" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
         </table>
       </div>
       <div class="footnote" id="deptFootnote"></div>
@@ -969,87 +969,86 @@ function buildExec(bud, fcst, arr, kpi, cash, billings, fy28) {
   document.getElementById('execBody').innerHTML = h;
 }
 // ─── BUILD P&L BY DEPARTMENT ─────────────────────────
-function buildPL(bud, fcst) {
+function buildPL(bud, fcst, fy28) {
+  const NC = 13;
   const COGS=['COGS: Infrastructure','COGS: Services'];
   const OPEX=['Engineering','Product','Customer Success','Sales','Marketing','G&A'];
   const REV_TYPES=['Subscription Revenue','Consumption Revenue','Services Revenue','Pilot Revenue','Other Revenue'];
   let h='';
 
-  const budRevTotal=bud.revTotal(), fcstRevTotal=fcst.revTotal();
-  h += row('Total Revenue', budRevTotal, fcstRevTotal, { cls:'row-subtotal', varDir:1 });
+  const budRevTotal=bud.revTotal(), fcstRevTotal=fcst.revTotal(), fy28RevTotal=fy28.revTotal();
+  h += erow('Total Revenue', budRevTotal, fcstRevTotal, fy28RevTotal, { cls:'row-subtotal', varDir:1 });
   for (const rt of REV_TYPES) {
-    const b=bud.revSum(rt), f=fcst.revSum(rt);
-    if (Math.abs(b)+Math.abs(f)>100) h += row(rt, b, f, { lc:'label-indent', varDir:1 });
+    const b=bud.revSum(rt), f=fcst.revSum(rt), p=fy28.revSum(rt);
+    if (Math.abs(b)+Math.abs(f)+Math.abs(p)>100) h += erow(rt, b, f, p, { lc:'label-indent', varDir:1 });
   }
-  h += spacer();
+  h += spacer(NC);
 
-  let budCogs=0, fcstCogs=0;
+  let budCogs=0, fcstCogs=0, fy28Cogs=0;
   for (const dept of COGS) {
-    h += secRow(dept);
+    h += secRow(dept, NC);
     for (const cls of ['Headcount Costs','Non-Headcount Costs','Overhead']) {
-      const b=bud.expSum(dept,cls,''), f=fcst.expSum(dept,cls,'');
-      if (Math.abs(b)+Math.abs(f)>100) h += row(cls, b, f, { lc:'label-indent', varDir:-1 });
+      const b=bud.expSum(dept,cls,''), f=fcst.expSum(dept,cls,''), p=fy28.expSum(dept,cls,'');
+      if (Math.abs(b)+Math.abs(f)+Math.abs(p)>100) h += erow(cls, b, f, p, { lc:'label-indent', varDir:-1 });
     }
-    const b=bud.expSum(dept,'',''), f=fcst.expSum(dept,'','');
-    budCogs+=b; fcstCogs+=f;
-    h += row('Total '+dept, b, f, { cls:'row-subtotal', varDir:-1 });
-    h += spacer();
+    const b=bud.expSum(dept,'',''), f=fcst.expSum(dept,'',''), p=fy28.expSum(dept,'','');
+    budCogs+=b; fcstCogs+=f; fy28Cogs+=p;
+    h += erow('Total '+dept, b, f, p, { cls:'row-subtotal', varDir:-1 });
+    h += spacer(NC);
   }
-  h += row('Total COGS', budCogs, fcstCogs, { cls:'row-total', varDir:-1 });
-  const budGP=budRevTotal-budCogs, fcstGP=fcstRevTotal-fcstCogs;
-  h += row('Gross Profit', budGP, fcstGP, { cls:'row-subtotal', varDir:1 });
-  h += rowPct('GM%', budRevTotal?budGP/budRevTotal:0, fcstRevTotal?fcstGP/fcstRevTotal:0, { cls:'row-margin', varDir:1 });
+  h += erow('Total COGS', budCogs, fcstCogs, fy28Cogs, { cls:'row-total', varDir:-1 });
+  const budGP=budRevTotal-budCogs, fcstGP=fcstRevTotal-fcstCogs, fy28GP=fy28RevTotal-fy28Cogs;
+  h += erow('Gross Profit', budGP, fcstGP, fy28GP, { cls:'row-subtotal', varDir:1 });
+  h += erowPct('GM%', budRevTotal?budGP/budRevTotal:0, fcstRevTotal?fcstGP/fcstRevTotal:0, fy28RevTotal?fy28GP/fy28RevTotal:0, { cls:'row-margin', varDir:1 });
 
   // ── Gross Margin by category ──────────────────────────
-  const budSvcsRev  = bud.revSum('Services Revenue');
-  const fcstSvcsRev = fcst.revSum('Services Revenue');
-  const budSvcsCOGS = bud.expSum('COGS: Services','','');
-  const fcstSvcsCOGS= fcst.expSum('COGS: Services','','');
-  const budSvcsGM   = budSvcsRev - budSvcsCOGS;
-  const fcstSvcsGM  = fcstSvcsRev - fcstSvcsCOGS;
+  const budSvcsRev  = bud.revSum('Services Revenue'),  fcstSvcsRev  = fcst.revSum('Services Revenue'),  fy28SvcsRev  = fy28.revSum('Services Revenue');
+  const budSvcsCOGS = bud.expSum('COGS: Services','',''), fcstSvcsCOGS = fcst.expSum('COGS: Services','',''), fy28SvcsCOGS = fy28.expSum('COGS: Services','','');
+  const budSvcsGM   = budSvcsRev  - budSvcsCOGS,  fcstSvcsGM  = fcstSvcsRev  - fcstSvcsCOGS,  fy28SvcsGM  = fy28SvcsRev  - fy28SvcsCOGS;
 
-  const budInfraRev  = bud.revSum('Subscription Revenue') + bud.revSum('Consumption Revenue');
+  const budInfraRev  = bud.revSum('Subscription Revenue')  + bud.revSum('Consumption Revenue');
   const fcstInfraRev = fcst.revSum('Subscription Revenue') + fcst.revSum('Consumption Revenue');
-  const budInfraCOGS = bud.expSum('COGS: Infrastructure','','');
-  const fcstInfraCOGS= fcst.expSum('COGS: Infrastructure','','');
-  const budInfraGM   = budInfraRev - budInfraCOGS;
-  const fcstInfraGM  = fcstInfraRev - fcstInfraCOGS;
+  const fy28InfraRev = fy28.revSum('Subscription Revenue') + fy28.revSum('Consumption Revenue');
+  const budInfraCOGS = bud.expSum('COGS: Infrastructure','',''), fcstInfraCOGS = fcst.expSum('COGS: Infrastructure','',''), fy28InfraCOGS = fy28.expSum('COGS: Infrastructure','','');
+  const budInfraGM   = budInfraRev  - budInfraCOGS,  fcstInfraGM  = fcstInfraRev  - fcstInfraCOGS,  fy28InfraGM  = fy28InfraRev  - fy28InfraCOGS;
 
-  h += secRow('Gross Margin Detail');
-  h += row('Services GM',  budSvcsGM,  fcstSvcsGM,  { lc:'label-indent', varDir:1 });
-  h += rowPct('Services GM%', budSvcsRev?budSvcsGM/budSvcsRev:0, fcstSvcsRev?fcstSvcsGM/fcstSvcsRev:0, { cls:'row-margin', lc:'label-indent', varDir:1 });
-  h += row('Infrastructure GM', budInfraGM, fcstInfraGM, { lc:'label-indent', varDir:1 });
-  h += rowPct('Infrastructure GM%', budInfraRev?budInfraGM/budInfraRev:0, fcstInfraRev?fcstInfraGM/fcstInfraRev:0, { cls:'row-margin', lc:'label-indent', varDir:1 });
-  h += spacer();
+  h += secRow('Gross Margin Detail', NC);
+  h += erow('Services GM',        budSvcsGM,  fcstSvcsGM,  fy28SvcsGM,  { lc:'label-indent', varDir:1 });
+  h += erowPct('Services GM%',    budSvcsRev?budSvcsGM/budSvcsRev:0,   fcstSvcsRev?fcstSvcsGM/fcstSvcsRev:0,   fy28SvcsRev?fy28SvcsGM/fy28SvcsRev:0,   { cls:'row-margin', lc:'label-indent', varDir:1 });
+  h += erow('Infrastructure GM',  budInfraGM, fcstInfraGM, fy28InfraGM, { lc:'label-indent', varDir:1 });
+  h += erowPct('Infrastructure GM%', budInfraRev?budInfraGM/budInfraRev:0, fcstInfraRev?fcstInfraGM/fcstInfraRev:0, fy28InfraRev?fy28InfraGM/fy28InfraRev:0, { cls:'row-margin', lc:'label-indent', varDir:1 });
+  h += spacer(NC);
 
-  let budOpex=0, fcstOpex=0;
+  let budOpex=0, fcstOpex=0, fy28Opex=0;
   for (const dept of OPEX) {
-    h += secRow(dept);
+    h += secRow(dept, NC);
     for (const cls of ['Headcount Costs','Non-Headcount Costs','Overhead']) {
-      const b=bud.expSum(dept,cls,''), f=fcst.expSum(dept,cls,'');
-      if (Math.abs(b)+Math.abs(f)>100) h += row(cls, b, f, { lc:'label-indent', varDir:-1 });
+      const b=bud.expSum(dept,cls,''), f=fcst.expSum(dept,cls,''), p=fy28.expSum(dept,cls,'');
+      if (Math.abs(b)+Math.abs(f)+Math.abs(p)>100) h += erow(cls, b, f, p, { lc:'label-indent', varDir:-1 });
     }
-    const b=bud.expSum(dept,'',''), f=fcst.expSum(dept,'','');
-    budOpex+=b; fcstOpex+=f;
-    h += row('Total '+dept, b, f, { cls:'row-subtotal', varDir:-1 });
-    h += spacer();
+    const b=bud.expSum(dept,'',''), f=fcst.expSum(dept,'',''), p=fy28.expSum(dept,'','');
+    budOpex+=b; fcstOpex+=f; fy28Opex+=p;
+    h += erow('Total '+dept, b, f, p, { cls:'row-subtotal', varDir:-1 });
+    h += spacer(NC);
   }
-  h += row('Total OpEx', budOpex, fcstOpex, { cls:'row-total', varDir:-1 });
-  h += spacer();
-  const budEbitda=budGP-budOpex, fcstEbitda=fcstGP-fcstOpex;
-  h += row('EBITDA', budEbitda, fcstEbitda, { cls:'row-total', varDir:1 });
-  h += rowPct('EBITDA Margin %', budRevTotal?budEbitda/budRevTotal:0, fcstRevTotal?fcstEbitda/fcstRevTotal:0, { cls:'row-margin', varDir:1 });
-  h += spacer();
+  h += erow('Total OpEx', budOpex, fcstOpex, fy28Opex, { cls:'row-total', varDir:-1 });
+  h += spacer(NC);
+  const budEbitda=budGP-budOpex, fcstEbitda=fcstGP-fcstOpex, fy28Ebitda=fy28GP-fy28Opex;
+  h += erow('EBITDA', budEbitda, fcstEbitda, fy28Ebitda, { cls:'row-total', varDir:1 });
+  h += erowPct('EBITDA Margin %', budRevTotal?budEbitda/budRevTotal:0, fcstRevTotal?fcstEbitda/fcstRevTotal:0, fy28RevTotal?fy28Ebitda/fy28RevTotal:0, { cls:'row-margin', varDir:1 });
+  h += spacer(NC);
 
   // HC / Non-HC summary across all departments
   const ALL_DEPTS = [...COGS, ...OPEX];
-  h += secRow('Expense Summary — All Departments');
+  h += secRow('Expense Summary — All Departments', NC);
   const budHCAll   = ALL_DEPTS.reduce((s,d)=>s+bud.expSum(d,'Headcount Costs',''),0);
   const fcstHCAll  = ALL_DEPTS.reduce((s,d)=>s+fcst.expSum(d,'Headcount Costs',''),0);
+  const fy28HCAll  = ALL_DEPTS.reduce((s,d)=>s+fy28.expSum(d,'Headcount Costs',''),0);
   const budNHCAll  = ALL_DEPTS.reduce((s,d)=>s+bud.expSum(d,'Non-Headcount Costs','')+bud.expSum(d,'Overhead',''),0);
   const fcstNHCAll = ALL_DEPTS.reduce((s,d)=>s+fcst.expSum(d,'Non-Headcount Costs','')+fcst.expSum(d,'Overhead',''),0);
-  h += row('Total Headcount Costs',  budHCAll,  fcstHCAll,  { cls:'row-subtotal', varDir:-1 });
-  h += row('Total Non-HC Costs',     budNHCAll, fcstNHCAll, { cls:'row-subtotal', varDir:-1 });
+  const fy28NHCAll = ALL_DEPTS.reduce((s,d)=>s+fy28.expSum(d,'Non-Headcount Costs','')+fy28.expSum(d,'Overhead',''),0);
+  h += erow('Total Headcount Costs', budHCAll,  fcstHCAll,  fy28HCAll,  { cls:'row-subtotal', varDir:-1 });
+  h += erow('Total Non-HC Costs',    budNHCAll, fcstNHCAll, fy28NHCAll, { cls:'row-subtotal', varDir:-1 });
 
   document.getElementById('deptBody').innerHTML = h;
 }
@@ -2097,10 +2096,10 @@ async function init() {
     ];
 
     document.getElementById('execHead').innerHTML = makeHeadExec('220px');
-    document.getElementById('deptHead').innerHTML = makeHead('220px');
+    document.getElementById('deptHead').innerHTML = makeHeadExec('220px');
 
     buildExec(bud, blended, arr, kpi, cash, billings, fy28);
-    buildPL(bud, blended);
+    buildPL(bud, blended, fy28);
     buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows, revTypeRows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings);
