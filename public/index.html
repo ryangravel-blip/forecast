@@ -136,10 +136,18 @@
   <div id="tab-qtrdept" class="tab-panel">
     <div class="table-card">
       <div class="table-title">
-        Quarterly P&amp;L by Department — FY27
+        <span id="qtrDeptTitle">Quarterly P&amp;L by Department — FY27 Forecast</span>
         <div style="display:flex;gap:6px;align-items:center">
-          <span class="badge" style="background:#fef3c7;color:#92400e">Q1 + May = Actuals</span>
-          <span class="badge badge-forecast">Q2 Jun–Q4 = Live Model</span>
+          <div style="display:flex;border:1px solid #d1d5db;border-radius:6px;overflow:hidden;font-size:12px">
+            <button id="qtrDeptBtnFcst" onclick="renderQtrDept('fcst')"
+              style="padding:5px 12px;border:none;cursor:pointer;background:#1e3a5f;color:#fff;font-weight:600">FY27 Forecast</button>
+            <button id="qtrDeptBtnBud" onclick="renderQtrDept('bud')"
+              style="padding:5px 12px;border:none;border-left:1px solid #d1d5db;cursor:pointer;background:#fff;color:#374151">Budget</button>
+            <button id="qtrDeptBtnFy28" onclick="renderQtrDept('fy28')"
+              style="padding:5px 12px;border:none;border-left:1px solid #d1d5db;cursor:pointer;background:#fff;color:#374151">FY28 Plan</button>
+          </div>
+          <span id="qtrDeptBadge1" class="badge" style="background:#fef3c7;color:#92400e">Q1 + May = Actuals</span>
+          <span id="qtrDeptBadge2" class="badge badge-forecast">Q2 Jun–Q4 = Live Model</span>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -436,6 +444,44 @@ const Q_MONTHLY_LIVE_DEPT = `
     AND COALESCE(C_PARENT_DEPT,'') != ''
     AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
   GROUP BY TIME_MONTH_END, C_PARENT_DEPT, C_PL_CLASS ORDER BY TIME_MONTH_END`;
+
+// Budget expense by dept/class/month (FY27 BoD Approved)
+const Q_QTR_DEPT_BUD = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
+    SUM(VALUE) AS EXPENSE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = '2026.3.6 - FY27 Final BoD Approved' AND C_PL_INCLUDE = 1
+    AND COALESCE(C_PARENT_DEPT,'') != ''
+    AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31'
+  GROUP BY TIME_MONTH_END, C_PARENT_DEPT, C_PL_CLASS ORDER BY TIME_MONTH_END`;
+
+// FY28 expense by dept/class/month (Live Model)
+const Q_QTR_DEPT_FY28 = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_PARENT_DEPT,'') AS DEPT, COALESCE(C_PL_CLASS,'') AS CLS,
+    SUM(VALUE) AS EXPENSE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model' AND C_PL_INCLUDE = 1
+    AND COALESCE(C_PARENT_DEPT,'') != ''
+    AND TIME_MONTH_END BETWEEN '2027-02-01' AND '2028-01-31'
+  GROUP BY TIME_MONTH_END, C_PARENT_DEPT, C_PL_CLASS ORDER BY TIME_MONTH_END`;
+
+// Budget revenue by type/month
+const Q_QTR_REV_BUD = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_REVENUE,'') AS REV_TYPE, SUM(VALUE) AS REVENUE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = '2026.3.6 - FY27 Final BoD Approved' AND C_PL_INCLUDE = 1
+    AND COALESCE(C_REVENUE,'') != ''
+    AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31'
+  GROUP BY 1, 2 ORDER BY 1`;
+
+// FY28 revenue by type/month
+const Q_QTR_REV_FY28 = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_REVENUE,'') AS REV_TYPE, SUM(VALUE) AS REVENUE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model' AND C_PL_INCLUDE = 1
+    AND COALESCE(C_REVENUE,'') != ''
+    AND TIME_MONTH_END BETWEEN '2027-02-01' AND '2028-01-31'
+  GROUP BY 1, 2 ORDER BY 1`;
 
 // GL actuals: YTD by account, dept, class
 const Q_GL_ACTUALS = `
@@ -1469,177 +1515,169 @@ function buildGLDetail(glActRows, glLiveRows, glHistRows) {
 }
 
 // ─── BUILD QUARTERLY BY DEPT ─────────────────────────
-function buildQtrDept(deptActRows, deptLiveRows, monthlyRevRows, revTypeRows) {
-  // deptMap[dept][cls][dt] = expense
-  const deptMap = {};
-  const add = (dept, cls, dt, exp) => {
-    if (!dept) return;
-    if (!deptMap[dept]) deptMap[dept] = {};
-    if (!deptMap[dept][cls]) deptMap[dept][cls] = {};
-    deptMap[dept][cls][dt] = (deptMap[dept][cls][dt]||0) + exp;
-  };
-  for (const r of deptActRows)  add(r.DEPT, r.CLS||'', r.DT.slice(0,10), +(r.EXPENSE||0));
-  for (const r of deptLiveRows) add(r.DEPT, r.CLS||'', r.DT.slice(0,10), +(r.EXPENSE||0));
+let _qtrDeptAllData = null;
 
-  // Revenue from monthlyRevRows
-  const revMap = {};
-  for (const r of monthlyRevRows) revMap[r.dt] = (revMap[r.dt]||0) + r.rev;
+function buildQtrDept(deptActRows, deptLiveRows, deptBudRows, deptFy28Rows,
+                      monthlyRevRows, revTypeRows, revBudRows, revFy28Rows) {
+  _qtrDeptAllData = { deptActRows, deptLiveRows, deptBudRows, deptFy28Rows,
+                      monthlyRevRows, revTypeRows, revBudRows, revFy28Rows };
+  renderQtrDept('fcst');
+}
 
-  // Revenue by type (for GM calculation)
-  const revTypeMap = {};  // [dt][revType] = amount
-  for (const r of (revTypeRows||[])) {
-    const dt = r.DT ? r.DT.slice(0,10) : '';
-    if (!revTypeMap[dt]) revTypeMap[dt] = {};
-    revTypeMap[dt][r.REV_TYPE] = (revTypeMap[dt][r.REV_TYPE]||0) + +(r.REVENUE||0);
-  }
-  const qRevType = (types, months) =>
-    months.reduce((s,dt) => s + types.reduce((ss,t) => ss+(revTypeMap[dt]?.[t]||0), 0), 0);
+function renderQtrDept(mode) {
+  if (!_qtrDeptAllData) return;
+  const { deptActRows, deptLiveRows, deptBudRows, deptFy28Rows,
+          monthlyRevRows, revTypeRows, revBudRows, revFy28Rows } = _qtrDeptAllData;
 
-  const QTRS = [
-    { label:'Q1 FY27', sub:"Feb–Apr '26",     months:['2026-02-28','2026-03-31','2026-04-30'], act:true  },
-    { label:'Q2 FY27', sub:"May–Jul '26",     months:['2026-05-31','2026-06-30','2026-07-31'], act:false },
-    { label:'Q3 FY27', sub:"Aug–Oct '26",     months:['2026-08-31','2026-09-30','2026-10-31'], act:false },
+  ['Fcst','Bud','Fy28'].forEach(m => {
+    const btn = document.getElementById('qtrDeptBtn'+m);
+    if (!btn) return;
+    const active = m.toLowerCase() === mode || (m==='Fy28' && mode==='fy28');
+    btn.style.cssText = (mode === (m==='Fy28'?'fy28':m.toLowerCase()))
+      ? 'padding:5px 12px;border:none;cursor:pointer;background:#1e3a5f;color:#fff;font-weight:600'
+      : 'padding:5px 12px;border:none;border-left:1px solid #d1d5db;cursor:pointer;background:#fff;color:#374151';
+  });
+
+  const isFY28 = mode === 'fy28', isBud = mode === 'bud';
+  const FY_LABEL = isFY28 ? 'FY28' : 'FY27';
+
+  const QTRS = isFY28 ? [
+    { label:'Q1 FY28', sub:"Feb–Apr '27", months:['2027-02-28','2027-03-31','2027-04-30'], act:false },
+    { label:'Q2 FY28', sub:"May–Jul '27", months:['2027-05-31','2027-06-30','2027-07-31'], act:false },
+    { label:'Q3 FY28', sub:"Aug–Oct '27", months:['2027-08-31','2027-09-30','2027-10-31'], act:false },
+    { label:'Q4 FY28', sub:"Nov '27–Jan '28", months:['2027-11-30','2027-12-31','2028-01-31'], act:false },
+  ] : [
+    { label:'Q1 FY27', sub:"Feb–Apr '26", months:['2026-02-28','2026-03-31','2026-04-30'], act:!isBud },
+    { label:'Q2 FY27', sub:"May–Jul '26", months:['2026-05-31','2026-06-30','2026-07-31'], act:false },
+    { label:'Q3 FY27', sub:"Aug–Oct '26", months:['2026-08-31','2026-09-30','2026-10-31'], act:false },
     { label:'Q4 FY27', sub:"Nov '26–Jan '27", months:['2026-11-30','2026-12-31','2027-01-31'], act:false },
   ];
-  const COGS  = ['COGS: Infrastructure','COGS: Services'];
-  const OPEX  = ['Engineering','Product','Customer Success','Sales','Marketing','G&A'];
-  const DEPTS = [...COGS, ...OPEX];
-  const CLASSES = ['Headcount Costs','Non-Headcount Costs','Overhead'];
+
+  const titles = { fcst:'Quarterly P&L by Department — FY27 Forecast', bud:'Quarterly P&L by Department — FY27 Budget', fy28:'Quarterly P&L by Department — FY28 Plan' };
+  const b1txt  = { fcst:'Q1 + May = Actuals', bud:'FY27 BoD Approved', fy28:'Live Model' };
+  const b1sty  = { fcst:'background:#fef3c7;color:#92400e', bud:'background:#dbeafe;color:#1e40af', fy28:'background:#dcfce7;color:#166534' };
+  const b2txt  = { fcst:'Q2 Jun–Q4 = Live Model', bud:'', fy28:'' };
+  const el = id => document.getElementById(id);
+  el('qtrDeptTitle').innerHTML = titles[mode];
+  el('qtrDeptBadge1').textContent = b1txt[mode]; el('qtrDeptBadge1').style.cssText = b1sty[mode];
+  el('qtrDeptBadge2').textContent = b2txt[mode]; el('qtrDeptBadge2').style.display = b2txt[mode] ? '' : 'none';
+
+  // Build deptMap
+  const deptMap = {};
+  const addRow = (dept, cls, dt, exp) => {
+    if (!dept) return;
+    const d = String(dt).slice(0,10);
+    if (!deptMap[dept]) deptMap[dept] = {};
+    if (!deptMap[dept][cls]) deptMap[dept][cls] = {};
+    deptMap[dept][cls][d] = (deptMap[dept][cls][d]||0) + exp;
+  };
+  const srcRows = isFY28 ? deptFy28Rows : isBud ? deptBudRows : [...deptActRows, ...deptLiveRows];
+  for (const r of srcRows) addRow(r.DEPT, r.CLS||'', r.DT, +(r.EXPENSE||0));
+
+  // Build revMap + revTypeMap
+  const revMap = {}, revTypeMap = {};
+  if (isFY28 || isBud) {
+    const revSrc = isFY28 ? revFy28Rows : revBudRows;
+    for (const r of revSrc) {
+      const d = String(r.DT).slice(0,10);
+      revMap[d] = (revMap[d]||0) + +(r.REVENUE||0);
+      if (!revTypeMap[d]) revTypeMap[d] = {};
+      revTypeMap[d][r.REV_TYPE||''] = (revTypeMap[d][r.REV_TYPE||'']||0) + +(r.REVENUE||0);
+    }
+  } else {
+    for (const r of monthlyRevRows) revMap[r.dt] = (revMap[r.dt]||0) + r.rev;
+    for (const r of (revTypeRows||[])) {
+      const d = r.DT ? r.DT.slice(0,10) : '';
+      if (!revTypeMap[d]) revTypeMap[d] = {};
+      revTypeMap[d][r.REV_TYPE] = (revTypeMap[d][r.REV_TYPE]||0) + +(r.REVENUE||0);
+    }
+  }
+
+  const COGS=['COGS: Infrastructure','COGS: Services'], OPEX=['Engineering','Product','Customer Success','Sales','Marketing','G&A'];
+  const DEPTS=[...COGS,...OPEX], CLASSES=['Headcount Costs','Non-Headcount Costs','Overhead'];
 
   const qExp = (dept, cls, months) => {
     const dm = deptMap[dept]; if (!dm) return 0;
-    if (cls) { const cm=dm[cls]; return cm ? months.reduce((s,dt)=>s+(cm[dt]||0),0) : 0; }
+    if (cls) { const cm=dm[cls]; return cm ? months.reduce((s,dt)=>s+(cm[dt]||0),0):0; }
     return Object.values(dm).reduce((s,cm)=>s+months.reduce((ss,dt)=>ss+(cm[dt]||0),0),0);
   };
-  const qRev  = q => q.months.reduce((s,dt)=>s+(revMap[dt]||0),0);
-  const qHC   = (dept, q) => qExp(dept,'Headcount Costs',q.months);
-  const qNHC  = (dept, q) => qExp(dept,'Non-Headcount Costs',q.months)+qExp(dept,'Overhead',q.months);
+  const qRevType = (types, months) => months.reduce((s,dt)=>s+types.reduce((ss,t)=>ss+(revTypeMap[dt]?.[t]||0),0),0);
+  const qRev = q => q.months.reduce((s,dt)=>s+(revMap[dt]||0),0);
 
-  const NC = QTRS.length + 1; // data cols including FY Total
-  const nc = NC + 1;          // total cols including label
+  const NC = QTRS.length + 1, nc = NC + 1;
+  const hdrBg = q => q.act ? '#fef9ec' : (isFY28 ? '#eef3fb' : isBud ? '#f0f4ff' : '#f0fdf4');
+  const hdrFg = q => q.act ? '#78350f' : (isFY28 ? '#1e3a5f' : isBud ? '#1e3a8a' : '#14532d');
+  const totBg = isFY28 ? '#dbeafe' : isBud ? '#e8eeff' : '#e9edf2';
 
-  // Header
-  const hdrBg = q => q.act ? '#fef9ec' : '#f0fdf4';
-  const hdrFg = q => q.act ? '#78350f' : '#14532d';
   let head = `<tr class="col-header"><th class="label-col" style="min-width:210px">Dept / Class ($K)</th>` +
-    QTRS.map(q=>`<th style="text-align:right;padding:7px 10px;background:${hdrBg(q)};color:${hdrFg(q)};white-space:nowrap">
-      ${q.label}<br><span style="font-weight:400;font-size:10px;opacity:.75">${q.sub}</span></th>`).join('') +
-    `<th style="text-align:right;padding:7px 10px;background:#e9edf2;font-weight:700">FY27 Total</th></tr>`;
+    QTRS.map(q=>`<th style="text-align:right;padding:7px 10px;background:${hdrBg(q)};color:${hdrFg(q)};white-space:nowrap">${q.label}<br><span style="font-weight:400;font-size:10px;opacity:.75">${q.sub}</span></th>`).join('') +
+    `<th style="text-align:right;padding:7px 10px;background:${totBg};font-weight:700">${FY_LABEL} Total</th></tr>`;
 
-  // Row builder
   const rowQ = (lbl, vals, cls='', lc='label-col') => {
-    const ye = vals.reduce((s,v)=>s+v,0);
+    const ye=vals.reduce((s,v)=>s+v,0);
     if (vals.every(v=>v===0)&&ye===0) return '';
-    const fw = cls.includes('total')||cls.includes('subtotal') ? 600 : 400;
-    return `<tr class="${cls}"><td class="${lc}">${lbl}</td>` +
-      vals.map(v=>`<td style="text-align:right;padding:6px 10px">${KD(v/1e3)}</td>`).join('') +
+    const fw=cls.includes('total')||cls.includes('subtotal')?600:400;
+    return `<tr class="${cls}"><td class="${lc}">${lbl}</td>`+
+      vals.map(v=>`<td style="text-align:right;padding:6px 10px">${KD(v/1e3)}</td>`).join('')+
       `<td style="text-align:right;padding:6px 10px;font-weight:${fw}">${KD(ye/1e3)}</td></tr>`;
   };
-  const secRow = lbl => `<tr class="row-section"><td class="label-col" colspan="${nc}">${lbl}</td></tr>`;
-  const spacer  = ()  => `<tr class="row-spacer"><td colspan="${nc}"></td></tr>`;
+  const secRowQ=lbl=>`<tr class="row-section"><td class="label-col" colspan="${nc}">${lbl}</td></tr>`;
+  const spacerQ=()=>`<tr class="row-spacer"><td colspan="${nc}"></td></tr>`;
+  const pctRow=(lbl,gmV,revV)=>{
+    const pcts=gmV.map((g,i)=>revV[i]?g/revV[i]:NaN);
+    const yeGM=gmV.reduce((s,v)=>s+v,0),yeRev=revV.reduce((s,v)=>s+v,0);
+    const all=[...pcts,yeRev?yeGM/yeRev:NaN];
+    return `<tr><td class="label-indent" style="font-style:italic;color:#4b5563">${lbl}</td>`+
+      all.map(v=>`<td style="text-align:right;padding:6px 10px;font-style:italic;color:#4b5563">${isNaN(v)?'—':N(v*100,1)+'%'}</td>`).join('')+'</tr>';
+  };
 
-  let h = '';
+  let h='';
+  const revVals=QTRS.map(q=>qRev(q));
+  h+=rowQ('Total Revenue',revVals,'row-subtotal');
+  h+=spacerQ();
 
-  // Revenue
-  const revVals = QTRS.map(q=>qRev(q));
-  h += rowQ('Total Revenue', revVals, 'row-subtotal');
-  h += spacer();
-
-  // COGS depts
-  const cogsVals = QTRS.map(()=>0);
+  const cogsVals=QTRS.map(()=>0);
   for (const dept of COGS) {
-    h += secRow(dept);
-    for (const cls of CLASSES) {
-      const v = QTRS.map(q=>qExp(dept,cls,q.months));
-      h += rowQ(cls, v, '', 'label-indent');
-    }
-    const tv = QTRS.map(q=>qExp(dept,null,q.months));
-    tv.forEach((v,i)=>cogsVals[i]+=v);
-    h += rowQ('Total '+dept, tv, 'row-subtotal');
-    h += spacer();
+    h+=secRowQ(dept);
+    for (const cls of CLASSES) { const v=QTRS.map(q=>qExp(dept,cls,q.months)); h+=rowQ(cls,v,'','label-indent'); }
+    const tv=QTRS.map(q=>qExp(dept,null,q.months)); tv.forEach((v,i)=>cogsVals[i]+=v);
+    h+=rowQ('Total '+dept,tv,'row-subtotal'); h+=spacerQ();
   }
-  h += rowQ('Total COGS', cogsVals, 'row-total');
+  h+=rowQ('Total COGS',cogsVals,'row-total');
 
-  // Gross Margin breakdown
-  const SVCS_TYPES = ['Services Revenue'];
-  const INFRA_TYPES = ['Subscription Revenue','Consumption Revenue'];
-  const svcsRevVals  = QTRS.map(q => qRevType(SVCS_TYPES,  q.months));
-  const infraRevVals = QTRS.map(q => qRevType(INFRA_TYPES, q.months));
-  const svcsCOGSVals = QTRS.map(q => qExp('COGS: Services',      null, q.months));
-  const infraCOGSVals= QTRS.map(q => qExp('COGS: Infrastructure', null, q.months));
-  const svcsGMVals   = svcsRevVals.map((r,i)  => r - svcsCOGSVals[i]);
-  const infraGMVals  = infraRevVals.map((r,i) => r - infraCOGSVals[i]);
-  const totalGMVals  = QTRS.map((_,i) => revVals[i] - cogsVals[i]);
+  const svcsRevV=QTRS.map(q=>qRevType(['Services Revenue'],q.months));
+  const infraRevV=QTRS.map(q=>qRevType(['Subscription Revenue','Consumption Revenue'],q.months));
+  const svcsGMV=svcsRevV.map((r,i)=>r-qExp('COGS: Services',null,QTRS[i].months));
+  const infraGMV=infraRevV.map((r,i)=>r-qExp('COGS: Infrastructure',null,QTRS[i].months));
+  const totalGMV=QTRS.map((_,i)=>revVals[i]-cogsVals[i]);
+  h+=secRowQ('Gross Margin');
+  h+=rowQ('Services GM',svcsGMV,'row-subtotal'); h+=pctRow('Services GM%',svcsGMV,svcsRevV);
+  h+=rowQ('Infrastructure GM',infraGMV,'row-subtotal'); h+=pctRow('Infrastructure GM%',infraGMV,infraRevV);
+  h+=rowQ('Total Gross Margin',totalGMV,'row-total'); h+=pctRow('Total GM%',totalGMV,revVals);
+  h+=spacerQ();
 
-  h += secRow('Gross Margin');
-  h += rowQ('Services GM',        svcsGMVals,  'row-subtotal');
-  h += (()=>{
-    const pcts = svcsGMVals.map((g,i) => svcsRevVals[i] ? g/svcsRevVals[i] : NaN);
-    const yeGM = svcsGMVals.reduce((s,v)=>s+v,0), yeRev = svcsRevVals.reduce((s,v)=>s+v,0);
-    const yePct = yeRev ? yeGM/yeRev : NaN;
-    const all = [...pcts, yePct];
-    const fw = 400;
-    return `<tr><td class="label-indent" style="font-style:italic;color:#4b5563">Services GM%</td>` +
-      all.map(v => `<td style="text-align:right;padding:6px 10px;font-style:italic;color:#4b5563">${isNaN(v)?'—':N(v*100,1)+'%'}</td>`).join('') +
-      '</tr>';
-  })();
-  h += rowQ('Infrastructure GM',  infraGMVals, 'row-subtotal');
-  h += (()=>{
-    const pcts = infraGMVals.map((g,i) => infraRevVals[i] ? g/infraRevVals[i] : NaN);
-    const yeGM = infraGMVals.reduce((s,v)=>s+v,0), yeRev = infraRevVals.reduce((s,v)=>s+v,0);
-    const yePct = yeRev ? yeGM/yeRev : NaN;
-    const all = [...pcts, yePct];
-    return `<tr><td class="label-indent" style="font-style:italic;color:#4b5563">Infrastructure GM%</td>` +
-      all.map(v => `<td style="text-align:right;padding:6px 10px;font-style:italic;color:#4b5563">${isNaN(v)?'—':N(v*100,1)+'%'}</td>`).join('') +
-      '</tr>';
-  })();
-  h += rowQ('Total Gross Margin', totalGMVals, 'row-total');
-  h += (()=>{
-    const pcts = totalGMVals.map((g,i) => revVals[i] ? g/revVals[i] : NaN);
-    const yeGM = totalGMVals.reduce((s,v)=>s+v,0), yeRev = revVals.reduce((s,v)=>s+v,0);
-    const yePct = yeRev ? yeGM/yeRev : NaN;
-    const all = [...pcts, yePct];
-    return `<tr><td class="label-indent" style="font-style:italic;color:#4b5563;font-weight:600">Total GM%</td>` +
-      all.map(v => `<td style="text-align:right;padding:6px 10px;font-style:italic;color:#4b5563;font-weight:600">${isNaN(v)?'—':N(v*100,1)+'%'}</td>`).join('') +
-      '</tr>';
-  })();
-  h += spacer();
-
-  // OpEx depts
-  const opexVals = QTRS.map(()=>0);
+  const opexVals=QTRS.map(()=>0);
   for (const dept of OPEX) {
-    h += secRow(dept);
-    for (const cls of CLASSES) {
-      const v = QTRS.map(q=>qExp(dept,cls,q.months));
-      h += rowQ(cls, v, '', 'label-indent');
-    }
-    const tv = QTRS.map(q=>qExp(dept,null,q.months));
-    tv.forEach((v,i)=>opexVals[i]+=v);
-    h += rowQ('Total '+dept, tv, 'row-subtotal');
-    h += spacer();
+    h+=secRowQ(dept);
+    for (const cls of CLASSES) { const v=QTRS.map(q=>qExp(dept,cls,q.months)); h+=rowQ(cls,v,'','label-indent'); }
+    const tv=QTRS.map(q=>qExp(dept,null,q.months)); tv.forEach((v,i)=>opexVals[i]+=v);
+    h+=rowQ('Total '+dept,tv,'row-subtotal'); h+=spacerQ();
   }
-  h += rowQ('Total OpEx', opexVals, 'row-total');
-  h += spacer();
+  h+=rowQ('Total OpEx',opexVals,'row-total'); h+=spacerQ();
 
-  // EBITDA
-  const totalExpVals = QTRS.map((q,i)=>cogsVals[i]+opexVals[i]);
-  const ebitdaVals   = QTRS.map((q,i)=>revVals[i]-totalExpVals[i]);
-  h += rowQ('Total Expense', totalExpVals, 'row-total');
-  h += rowQ('EBITDA',        ebitdaVals,   'row-total');
-  h += spacer();
+  const totalExpV=QTRS.map((_,i)=>cogsVals[i]+opexVals[i]);
+  const ebitdaV=QTRS.map((_,i)=>revVals[i]-totalExpV[i]);
+  h+=rowQ('Total Expense',totalExpV,'row-total');
+  h+=rowQ('EBITDA',ebitdaV,'row-total'); h+=spacerQ();
 
-  // HC / Non-HC summary
-  h += secRow('Expense Summary — All Departments');
-  const hcVals  = QTRS.map(q=>DEPTS.reduce((s,d)=>s+qHC(d,q),0));
-  const nhcVals = QTRS.map(q=>DEPTS.reduce((s,d)=>s+qNHC(d,q),0));
-  h += rowQ('Total Headcount Costs', hcVals,  'row-subtotal');
-  h += rowQ('Total Non-HC Costs',    nhcVals, 'row-subtotal');
+  h+=secRowQ('Expense Summary — All Departments');
+  h+=rowQ('Total Headcount Costs',QTRS.map(q=>DEPTS.reduce((s,d)=>s+qExp(d,'Headcount Costs',q.months),0)),'row-subtotal');
+  h+=rowQ('Total Non-HC Costs',QTRS.map(q=>DEPTS.reduce((s,d)=>s+qExp(d,'Non-Headcount Costs',q.months)+qExp(d,'Overhead',q.months),0)),'row-subtotal');
 
-  document.getElementById('qtrDeptHead').innerHTML = head;
-  document.getElementById('qtrDeptBody').innerHTML = h;
-  document.getElementById('qtrDeptFootnote').textContent =
-    'Q1 (Feb–Apr), May and Jun = mrp_financials actuals. Jul onwards = Live Model (mrp_forecast). ' +
-    'Overhead folded into Non-HC Costs in the summary rows.';
+  document.getElementById('qtrDeptHead').innerHTML=head;
+  document.getElementById('qtrDeptBody').innerHTML=h;
+  const fnotes={fcst:'Q1 (Feb–Apr), May and Jun = mrp_financials actuals. Jul onwards = Live Model.',bud:'FY27 BoD Approved budget (mrp_forecast).',fy28:'FY28 Live Model (mrp_forecast Feb 2027–Jan 2028).'};
+  document.getElementById('qtrDeptFootnote').textContent=fnotes[mode];
 }
 
 // ─── PROCESS HISTORICAL ──────────────────────────────
