@@ -107,6 +107,7 @@
   <button class="tab-btn" onclick="switchTab('bridge',this)">Forecast Bridge</button>
   <button class="tab-btn" onclick="switchTab('gl',this)">GL Detail</button>
   <button class="tab-btn" onclick="switchTab('vendor',this)">Vendor Detail</button>
+  <button class="tab-btn" onclick="switchTab('hc',this)">Headcount</button>
 </div>
 
 <div class="content">
@@ -262,6 +263,26 @@
         <tbody id="vendorBody"><tr><td colspan="5" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
       </table>
       <div class="footnote" id="vendorFootnote"></div>
+    </div>
+  </div>
+
+  <!-- HEADCOUNT -->
+  <div id="tab-hc" class="tab-panel">
+    <div class="table-card">
+      <div class="table-title">
+        Headcount by Department
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="badge" style="background:#fef3c7;color:#92400e">Actuals = Jul 2026 Snapshot</span>
+          <span class="badge badge-forecast">Forecast = Live Model EOP</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="hcHead"></thead>
+          <tbody id="hcBody"><tr><td class="label-col" colspan="11" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="footnote" id="hcFootnote"></div>
     </div>
   </div>
 
@@ -490,6 +511,26 @@ const Q_QTR_REV_FY28 = `
     AND COALESCE(C_REVENUE,'') != ''
     AND TIME_MONTH_END BETWEEN '2027-02-01' AND '2028-01-31'
   GROUP BY 1, 2 ORDER BY 1`;
+
+// Headcount actuals: Jul 2026 employee snapshot by dept
+const Q_HC_SNAP = `
+  SELECT COALESCE(C_PARENT_DEPT,'Other') AS DEPT, SUM("2026-07-31") AS HC
+  FROM load.finance_sandbox.mrp_employee_snap
+  WHERE EMPLOYEE_TYPE = 'Employee'
+    AND COALESCE(C_PARENT_DEPT,'') != ''
+  GROUP BY C_PARENT_DEPT
+  ORDER BY C_PARENT_DEPT`;
+
+// Headcount forecast by dept at key period-ends
+const Q_HC_FCST = `
+  SELECT COALESCE(C_PARENT_DEPT,'') AS DEPT, TIME_MONTH_END AS DT, SUM(VALUE) AS HC
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND ACCOUNT_CODE = 'Total_HC_EOM'
+    AND TIME_MONTH_END IN ('2026-07-31','2026-10-31','2027-01-31','2028-01-31')
+    AND COALESCE(C_PARENT_DEPT,'') != ''
+  GROUP BY C_PARENT_DEPT, TIME_MONTH_END
+  ORDER BY DEPT, TIME_MONTH_END`;
 
 // GL actuals: YTD by account, dept, class
 const Q_GL_ACTUALS = `
@@ -1340,6 +1381,89 @@ function renderQuarterly(mode) {
   document.getElementById('qtrFootnote').textContent = fnotes[mode];
 }
 
+// ─── BUILD HEADCOUNT ─────────────────────────────────
+function buildHC(snapRows, fcstRows) {
+  const DEPT_ORDER = ['COGS: Infrastructure','COGS: Services','Engineering','Product',
+                      'Customer Success','Sales','Marketing','G&A'];
+
+  // Actuals map: dept → HC
+  const actMap = {};
+  for (const r of snapRows) actMap[r.DEPT] = +(r.HC||0);
+
+  // Forecast map: dept → { dt → HC }
+  const fcstMap = {};
+  for (const r of fcstRows) {
+    const d = String(r.DT).slice(0,10);
+    if (!fcstMap[r.DEPT]) fcstMap[r.DEPT] = {};
+    fcstMap[r.DEPT][d] = +(r.HC||0);
+  }
+
+  const PERIODS = [
+    { label:'Q2 End',     sub:"Jul '26",  dt:'2026-07-31' },
+    { label:'Q3 End',     sub:"Oct '26",  dt:'2026-10-31' },
+    { label:'Q4 / FY27',  sub:"Jan '27",  dt:'2027-01-31' },
+    { label:'FY28',        sub:"Jan '28",  dt:'2028-01-31' },
+  ];
+
+  const fmtHC = v => (v==null||isNaN(v)||v===0) ? '—' : N(Math.round(v));
+  const fmtDelta = v => {
+    if (v==null||isNaN(v)||v===0) return '<td style="color:#9ba3af;text-align:right;padding:6px 8px;font-size:11px">—</td>';
+    const cls = v>0 ? 'color:#15803d' : 'color:#dc2626';
+    return `<td style="${cls};text-align:right;padding:6px 8px;font-size:11px;font-weight:600">${v>0?'+':''}${Math.round(v)}</td>`;
+  };
+
+  // Header
+  let head = `<tr class="group-header">
+    <th class="label-col hdr-lbl" style="min-width:200px"></th>
+    <th style="background:#3a4a5c;color:#e2e8f0;text-align:center">Actuals</th>
+    <th style="background:#1e3a2e;color:#d1fae5;text-align:center" colspan="${PERIODS.length*2}">Live Model Forecast (EOP)</th>
+  </tr>
+  <tr class="col-header">
+    <th class="label-col" style="min-width:200px">Department</th>
+    <th style="background:#f5f7fa;color:#6b7280;white-space:nowrap">Jul '26 Actual</th>` +
+    PERIODS.map(p =>
+      `<th style="background:#f0fdf4;color:#374151;white-space:nowrap">${p.label}<br><span style="font-weight:400;font-size:10px;opacity:.75">${p.sub}</span></th>` +
+      `<th style="background:#f0fdf4;color:#6b7280;font-size:10px">vs Act</th>`
+    ).join('') +
+  `</tr>`;
+
+  const buildRow = (dept, rowClass='') => {
+    const act = actMap[dept] ?? 0;
+    let r = `<tr class="${rowClass}"><td class="label-col">${dept}</td>`;
+    r += `<td style="background:#f5f7fa;text-align:right;padding:6px 10px;font-weight:600">${fmtHC(act)}</td>`;
+    for (const p of PERIODS) {
+      const fc = fcstMap[dept]?.[p.dt] ?? null;
+      const delta = (fc!=null && act) ? fc-act : null;
+      r += `<td style="background:#f0fdf4;text-align:right;padding:6px 10px">${fmtHC(fc)}</td>`;
+      r += fmtDelta(delta);
+    }
+    return r + '</tr>';
+  };
+
+  let body = '';
+  // COGS section
+  body += `<tr class="row-section"><td class="label-col" colspan="${2+PERIODS.length*2}">COGS</td></tr>`;
+  for (const d of ['COGS: Infrastructure','COGS: Services']) body += buildRow(d);
+  body += `<tr class="row-spacer"><td colspan="${2+PERIODS.length*2}"></td></tr>`;
+
+  // OpEx section
+  body += `<tr class="row-section"><td class="label-col" colspan="${2+PERIODS.length*2}">Operating Expenses</td></tr>`;
+  for (const d of ['Engineering','Product','Customer Success','Sales','Marketing','G&A']) body += buildRow(d);
+  body += `<tr class="row-spacer"><td colspan="${2+PERIODS.length*2}"></td></tr>`;
+
+  // Totals row
+  const totalAct = DEPT_ORDER.reduce((s,d)=>s+(actMap[d]||0),0);
+  actMap['__total__'] = totalAct;
+  fcstMap['__total__'] = {};
+  for (const p of PERIODS) fcstMap['__total__'][p.dt] = DEPT_ORDER.reduce((s,d)=>s+(fcstMap[d]?.[p.dt]||0),0);
+  body += buildRow('__total__','row-total').replace('>__total__<','>Total<');
+
+  document.getElementById('hcHead').innerHTML = head;
+  document.getElementById('hcBody').innerHTML = body;
+  document.getElementById('hcFootnote').textContent =
+    'Actuals: mrp_employee_snap Jul 2026 employee snapshot (Employee type only). Forecast: mrp_forecast Live Model Total_HC_EOM at each quarter/year-end. "vs Act" = change vs Jul 2026 actuals.';
+}
+
 // ─── BUILD GL DETAIL ─────────────────────────────────
 function buildGLDetail(glActRows, glLiveRows, glHistRows) {
   // Ratio helpers
@@ -2173,7 +2297,8 @@ async function init() {
     const [budRows, actualsRows, liveRows, arrRows, kpiRows, cashRows, maRows, mlRows,
            histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
            billRows, revTypeActRows, revTypeLiveRows, fy28Rows,
-           deptBudRows, deptFy28Rows, revBudRows, revFy28Rows] = await Promise.all([
+           deptBudRows, deptFy28Rows, revBudRows, revFy28Rows,
+           hcSnapRows, hcFcstRows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -2195,6 +2320,8 @@ async function init() {
       execSQL(Q_QTR_DEPT_FY28),
       execSQL(Q_QTR_REV_BUD),
       execSQL(Q_QTR_REV_FY28),
+      execSQL(Q_HC_SNAP),
+      execSQL(Q_HC_FCST),
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -2224,6 +2351,7 @@ async function init() {
     buildPL(bud, blended, fy28);
     buildQtrDept(deptActRows, deptLiveRows, deptBudRows, deptFy28Rows, monthlyRevRows, revTypeRows, revBudRows, revFy28Rows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings, deptBudRows, deptFy28Rows, revBudRows, revFy28Rows);
+    buildHC(hcSnapRows, hcFcstRows);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings);
 
     const now = new Date();
