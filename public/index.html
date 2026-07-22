@@ -104,6 +104,7 @@
   <button class="tab-btn" onclick="switchTab('dept',this)">P&amp;L by Department</button>
   <button class="tab-btn" onclick="switchTab('qtrdept',this)">Quarterly by Dept</button>
   <button class="tab-btn" onclick="switchTab('qtr',this)">Quarterly Forecast</button>
+  <button class="tab-btn" onclick="switchTab('expcat',this)">Expense by Category</button>
   <button class="tab-btn" onclick="switchTab('bridge',this)">Forecast Bridge</button>
   <button class="tab-btn" onclick="switchTab('gl',this)">GL Detail</button>
   <button class="tab-btn" onclick="switchTab('vendor',this)">Vendor Detail</button>
@@ -186,6 +187,33 @@
         </table>
       </div>
       <div class="footnote" id="qtrFootnote"></div>
+    </div>
+  </div>
+
+  <!-- EXPENSE BY CATEGORY -->
+  <div id="tab-expcat" class="tab-panel">
+    <div class="table-card">
+      <div class="table-title">
+        <span id="expcatTitle">Expense by Category — FY27 Forecast</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div style="display:flex;border:1px solid #d1d5db;border-radius:6px;overflow:hidden;font-size:12px">
+            <button id="expcatBtnFcst" onclick="renderExpCat('fcst')"
+              style="padding:5px 12px;border:none;cursor:pointer;background:#1e3a5f;color:#fff;font-weight:600">FY27 Forecast</button>
+            <button id="expcatBtnBud" onclick="renderExpCat('bud')"
+              style="padding:5px 12px;border:none;border-left:1px solid #d1d5db;cursor:pointer;background:#fff;color:#374151">Budget</button>
+            <button id="expcatBtnFy28" onclick="renderExpCat('fy28')"
+              style="padding:5px 12px;border:none;border-left:1px solid #d1d5db;cursor:pointer;background:#fff;color:#374151">FY28 Plan</button>
+          </div>
+          <span id="expcatBadge" class="badge badge-forecast">Quarterly total expense ($K)</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead id="expcatHead"></thead>
+          <tbody id="expcatBody"><tr><td class="label-col" colspan="6" style="color:#9ba3af;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="footnote" id="expcatFootnote"></div>
     </div>
   </div>
 
@@ -570,6 +598,45 @@ const Q_HC_FCST = `
     AND COALESCE(C_PARENT_DEPT,'') != ''
   GROUP BY C_PARENT_DEPT, TIME_MONTH_END
   ORDER BY DEPT, TIME_MONTH_END`;
+
+// Expense by Category — Budget quarterly
+const Q_CAT_BUD = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_EXPENSE_CATEGORY,'') AS CAT, SUM(VALUE) AS EXPENSE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = '2026.3.6 - FY27 Final BoD Approved'
+    AND C_PL_INCLUDE = 1 AND COALESCE(C_REVENUE,'') = ''
+    AND COALESCE(C_EXPENSE_CATEGORY,'') != ''
+    AND TIME_MONTH_END BETWEEN '2026-02-01' AND '2027-01-31'
+  GROUP BY 1, 2 ORDER BY 1`;
+
+// Expense by Category — FY27 actuals (mrp_financials, Feb–Jun 2026)
+const Q_CAT_ACT = `
+  SELECT MONTH_END_DT AS DT, COALESCE(C_EXPENSE_CATEGORY,'') AS CAT, SUM(AMT) AS EXPENSE
+  FROM load.finance_sandbox.mrp_financials
+  WHERE MONTH_END_DT BETWEEN '2026-02-28' AND '2026-06-30'
+    AND C_PL_INCLUDE = TRUE AND ACCOUNT_TYPE != 'Income'
+    AND COALESCE(C_EXPENSE_CATEGORY,'') != ''
+  GROUP BY 1, 2 ORDER BY 1`;
+
+// Expense by Category — Live Model Jul 2026–Jan 2027 (FY27 forecast RoY)
+const Q_CAT_LIVE = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_EXPENSE_CATEGORY,'') AS CAT, SUM(VALUE) AS EXPENSE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND C_PL_INCLUDE = 1 AND COALESCE(C_REVENUE,'') = ''
+    AND COALESCE(C_EXPENSE_CATEGORY,'') != ''
+    AND TIME_MONTH_END BETWEEN '2026-07-01' AND '2027-01-31'
+  GROUP BY 1, 2 ORDER BY 1`;
+
+// Expense by Category — FY28 Plan (Live Model Feb 2027–Jan 2028)
+const Q_CAT_FY28 = `
+  SELECT TIME_MONTH_END AS DT, COALESCE(C_EXPENSE_CATEGORY,'') AS CAT, SUM(VALUE) AS EXPENSE
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND C_PL_INCLUDE = 1 AND COALESCE(C_REVENUE,'') = ''
+    AND COALESCE(C_EXPENSE_CATEGORY,'') != ''
+    AND TIME_MONTH_END BETWEEN '2027-02-01' AND '2028-01-31'
+  GROUP BY 1, 2 ORDER BY 1`;
 
 // GL actuals: YTD by account, dept, class
 const Q_GL_ACTUALS = `
@@ -1432,6 +1499,129 @@ function renderQuarterly(mode) {
     fy28: 'FY28 Live Model (mrp_forecast Feb 2027–Jan 2028). ARR, Cash, HC, Billings & Collections from Live Model KPI codes.'
   };
   document.getElementById('qtrFootnote').textContent = fnotes[mode];
+}
+
+// ─── BUILD EXPENSE BY CATEGORY ──────────────────────────
+let _expcatAllData = null;
+
+function buildExpCat(budRows, actRows, liveRows, fy28Rows) {
+  // Build monthly map: { source → { CAT → { DT → EXPENSE } } }
+  function toMap(rows) {
+    const m = {};
+    for (const r of rows) {
+      const dt = String(r.DT).slice(0,10), cat = r.CAT||'', v = +(r.EXPENSE||0);
+      if (!cat) continue;
+      if (!m[cat]) m[cat] = {};
+      m[cat][dt] = (m[cat][dt]||0) + v;
+    }
+    return m;
+  }
+  _expcatAllData = {
+    bud:  toMap(budRows),
+    act:  toMap(actRows),
+    live: toMap(liveRows),
+    fy28: toMap(fy28Rows),
+  };
+  renderExpCat('fcst');
+}
+
+const CAT_ORDER = [
+  'Employee Compensation & Benefits',
+  'Hosting Fees',
+  'Discretionary Marketing',
+  'SaaS Tooling',
+  'Facilities',
+  'Administrative',
+  'Travel',
+  'Contract Labor',
+  'Professional Services',
+];
+
+const FY27_QTRS = [
+  { label:'Q1', sub:"Feb–Apr '26", months:['2026-02-28','2026-03-31','2026-04-30'] },
+  { label:'Q2', sub:"May–Jul '26", months:['2026-05-31','2026-06-30','2026-07-31'] },
+  { label:'Q3', sub:"Aug–Oct '26", months:['2026-08-31','2026-09-30','2026-10-31'] },
+  { label:'Q4', sub:"Nov '26–Jan '27", months:['2026-11-30','2026-12-31','2027-01-31'] },
+];
+const FY28_QTRS = [
+  { label:'Q1', sub:"Feb–Apr '27", months:['2027-02-28','2027-03-31','2027-04-30'] },
+  { label:'Q2', sub:"May–Jul '27", months:['2027-05-31','2027-06-30','2027-07-31'] },
+  { label:'Q3', sub:"Aug–Oct '27", months:['2027-08-31','2027-09-30','2027-10-31'] },
+  { label:'Q4', sub:"Nov '27–Jan '28", months:['2027-11-30','2027-12-31','2028-01-31'] },
+];
+
+function renderExpCat(mode) {
+  if (!_expcatAllData) return;
+  const { bud, act, live, fy28 } = _expcatAllData;
+
+  // Toggle button styling
+  ['Fcst','Bud','Fy28'].forEach(m => {
+    const btn = document.getElementById('expcatBtn'+m);
+    if (!btn) return;
+    const active = (mode==='fcst'&&m==='Fcst')||(mode==='bud'&&m==='Bud')||(mode==='fy28'&&m==='Fy28');
+    btn.style.background = active ? '#1e3a5f' : '#fff';
+    btn.style.color = active ? '#fff' : '#374151';
+    btn.style.fontWeight = active ? '600' : '400';
+  });
+
+  const isBud = mode==='bud', isFY28 = mode==='fy28';
+  const qtrs = isFY28 ? FY28_QTRS : FY27_QTRS;
+
+  document.getElementById('expcatTitle').textContent =
+    'Expense by Category — ' + (isFY28 ? 'FY28 Plan' : isBud ? 'FY27 Budget' : 'FY27 Forecast');
+  document.getElementById('expcatBadge').textContent =
+    isFY28 ? 'Live Model FY28' : isBud ? 'BoD Approved Budget' : 'Q1–Q2 actuals blended with Live Model';
+
+  // Retrieve expense for a category in a quarter
+  function catQ(cat, q) {
+    if (isBud) return q.months.reduce((s,dt) => s+(bud[cat]?.[dt]||0), 0);
+    if (isFY28) return q.months.reduce((s,dt) => s+(fy28[cat]?.[dt]||0), 0);
+    // FY27 Forecast: actuals Feb–Jun, Live Model Jul–Jan
+    const a = q.months.filter(dt=>dt<='2026-06-30').reduce((s,dt)=>s+(act[cat]?.[dt]||0),0);
+    const l = q.months.filter(dt=>dt>='2026-07-01').reduce((s,dt)=>s+(live[cat]?.[dt]||0),0);
+    return a + l;
+  }
+
+  const hdrBg = isFY28 ? '#1e3a5f' : isBud ? '#1e3a8a' : '#1e3a2e';
+  const colBg = isFY28 ? '#eef3fb' : isBud ? '#f0f4ff' : '#f0fdf4';
+  const totBg = isFY28 ? '#dbeafe' : isBud ? '#e8eeff' : '#dcfce7';
+
+  // Header
+  const head = `<tr class="group-header">
+    <th class="label-col hdr-lbl" style="min-width:240px"></th>
+    <th style="background:${hdrBg};color:#e2e8f0;text-align:center" colspan="5">
+      ${isFY28 ? 'FY28 Plan' : isBud ? 'FY27 Budget' : 'FY27 Forecast'} — Quarterly ($K)
+    </th>
+  </tr>
+  <tr class="col-header">
+    <th class="label-col" style="min-width:240px">Expense Category</th>
+    ${qtrs.map(q=>`<th style="background:${colBg};white-space:nowrap">${q.label}<br><span style="font-weight:400;font-size:10px;opacity:.75">${q.sub}</span></th>`).join('')}
+    <th style="background:${totBg};white-space:nowrap">FY Total</th>
+  </tr>`;
+
+  // Rows
+  let body = '';
+  for (const cat of CAT_ORDER) {
+    const vals = qtrs.map(q => catQ(cat, q));
+    const total = vals.reduce((s,v)=>s+v,0);
+    if (total === 0) continue;
+    body += `<tr><td class="label-col">${cat}</td>`;
+    vals.forEach(v => body += `<td style="background:${colBg};text-align:right;padding:6px 10px">${N(Math.round(v/1000))}</td>`);
+    body += `<td style="background:${totBg};text-align:right;padding:6px 10px;font-weight:600">${N(Math.round(total/1000))}</td>`;
+    body += '</tr>';
+  }
+
+  // Totals row
+  const qTotals = qtrs.map(q => CAT_ORDER.reduce((s,cat)=>s+catQ(cat,q),0));
+  const grandTotal = qTotals.reduce((s,v)=>s+v,0);
+  body += `<tr class="row-total"><td class="label-col">Total Expense</td>`;
+  qTotals.forEach(v => body += `<td style="text-align:right;padding:6px 10px">${N(Math.round(v/1000))}</td>`);
+  body += `<td style="text-align:right;padding:6px 10px">${N(Math.round(grandTotal/1000))}</td></tr>`;
+
+  document.getElementById('expcatHead').innerHTML = head;
+  document.getElementById('expcatBody').innerHTML = body;
+  document.getElementById('expcatFootnote').textContent =
+    'FY27 Forecast: actuals from mrp_financials (Feb–Jun 2026) blended with Live Model (Jul 2026–Jan 2027). Budget: BoD Approved. FY28: Live Model.';
 }
 
 // ─── BUILD HEADCOUNT ─────────────────────────────────
@@ -2354,7 +2544,8 @@ async function init() {
            histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
            billRows, revTypeActRows, revTypeLiveRows, fy28Rows,
            deptBudRows, deptFy28Rows, revBudRows, revFy28Rows,
-           hcSnapRows, hcFcstRows, hcQtrSnapRows] = await Promise.all([
+           hcSnapRows, hcFcstRows, hcQtrSnapRows,
+           catBudRows, catActRows, catLiveRows, catFy28Rows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -2379,6 +2570,7 @@ async function init() {
       execSQL(Q_HC_SNAP),
       execSQL(Q_HC_FCST),
       execSQL(Q_HC_QTR_SNAP),
+      execSQL(Q_CAT_BUD), execSQL(Q_CAT_ACT), execSQL(Q_CAT_LIVE), execSQL(Q_CAT_FY28),
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -2409,6 +2601,7 @@ async function init() {
     buildQtrDept(deptActRows, deptLiveRows, deptBudRows, deptFy28Rows, monthlyRevRows, revTypeRows, revBudRows, revFy28Rows);
     buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings, deptBudRows, deptFy28Rows, revBudRows, revFy28Rows, hcQtrSnapRows);
     buildHC(hcSnapRows, hcFcstRows);
+    buildExpCat(catBudRows, catActRows, catLiveRows, catFy28Rows);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings);
 
     const now = new Date();
