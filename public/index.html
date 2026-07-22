@@ -1304,9 +1304,8 @@ function renderQuarterly(mode) {
     const last = q.months[q.months.length-1];
     if (isBud) return kpi.budEop('Total_HC_EOM', last);
     if (!isBud && !isFY28) {
-      // Use snap actuals for completed quarters; Live Model for future quarters
+      // Use snap actuals for Q1 only; Q2+ use Live Model (matches HC tab Q2 End column)
       if (last <= '2026-04-30') return +(snapHC.Q1||0);
-      if (last <= '2026-07-31') return +(snapHC.Q2||0);
     }
     return kpi.liveEop('Total_HC_EOM', last);
   }
