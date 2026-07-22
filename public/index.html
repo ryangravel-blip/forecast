@@ -1389,6 +1389,9 @@ function buildHC(snapRows, fcstRows) {
   // Actuals map: dept → HC
   const actMap = {};
   for (const r of snapRows) actMap[r.DEPT] = +(r.HC||0);
+  // Manual: 2 blank-dept employees assigned to G&A (+1) and Sales (+1)
+  if (actMap['G&A']  != null) actMap['G&A']  += 1;
+  if (actMap['Sales'] != null) actMap['Sales'] += 1;
 
   // Forecast map: dept → { dt → HC }
   const fcstMap = {};
