@@ -516,7 +516,7 @@ const Q_QTR_REV_FY28 = `
 const Q_HC_SNAP = `
   SELECT COALESCE(C_PARENT_DEPT,'Other') AS DEPT, SUM("2026-07-31") AS HC
   FROM load.finance_sandbox.mrp_employee_snap
-  WHERE EMPLOYEE_TYPE = 'Employee'
+  WHERE EMPLOYEE_TYPE != 'Intern'
     AND COALESCE(C_PARENT_DEPT,'') != ''
   GROUP BY C_PARENT_DEPT
   ORDER BY C_PARENT_DEPT`;
