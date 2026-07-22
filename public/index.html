@@ -552,6 +552,14 @@ const Q_HC_SNAP = `
   GROUP BY C_PARENT_DEPT
   ORDER BY C_PARENT_DEPT`;
 
+// Headcount snap totals at quarter-end dates for Quarterly Forecast tab
+const Q_HC_QTR_SNAP = `
+  SELECT
+    SUM("2026-04-30") AS Q1,
+    SUM("2026-07-31") AS Q2
+  FROM load.finance_sandbox.mrp_employee_snap
+  WHERE EMPLOYEE_TYPE != 'Intern'`;
+
 // Headcount forecast by dept at key period-ends
 const Q_HC_FCST = `
   SELECT COALESCE(C_PARENT_DEPT,'') AS DEPT, TIME_MONTH_END AS DT, SUM(VALUE) AS HC
@@ -1183,16 +1191,17 @@ function buildPL(bud, fcst, fy28) {
 let _qtrAllData = null;
 
 function buildQuarterly(kpi, monthlyRevRows, arrRows, cashMonthly, billings,
-                        deptBudRows, deptFy28Rows, revBudRows, revFy28Rows) {
+                        deptBudRows, deptFy28Rows, revBudRows, revFy28Rows, hcQtrSnapRows) {
   _qtrAllData = { kpi, monthlyRevRows, arrRows, cashMonthly, billings,
-                  deptBudRows, deptFy28Rows, revBudRows, revFy28Rows };
+                  deptBudRows, deptFy28Rows, revBudRows, revFy28Rows, hcQtrSnapRows };
   renderQuarterly('fcst');
 }
 
 function renderQuarterly(mode) {
   if (!_qtrAllData) return;
   const { kpi, monthlyRevRows, arrRows, cashMonthly, billings,
-          deptBudRows, deptFy28Rows, revBudRows, revFy28Rows } = _qtrAllData;
+          deptBudRows, deptFy28Rows, revBudRows, revFy28Rows, hcQtrSnapRows } = _qtrAllData;
+  const snapHC = hcQtrSnapRows && hcQtrSnapRows[0] ? hcQtrSnapRows[0] : {};
 
   // Toggle button states
   ['Fcst','Bud','Fy28'].forEach(m => {
@@ -1293,7 +1302,13 @@ function renderQuarterly(mode) {
 
   function qHC(q) {
     const last = q.months[q.months.length-1];
-    return isBud ? kpi.budEop('Total_HC_EOM',last) : kpi.liveEop('Total_HC_EOM',last);
+    if (isBud) return kpi.budEop('Total_HC_EOM', last);
+    if (!isBud && !isFY28) {
+      // Use snap actuals for completed quarters; Live Model for future quarters
+      if (last <= '2026-04-30') return +(snapHC.Q1||0);
+      if (last <= '2026-07-31') return +(snapHC.Q2||0);
+    }
+    return kpi.liveEop('Total_HC_EOM', last);
   }
 
   // Billings & Collections per quarter
@@ -2332,7 +2347,7 @@ async function init() {
            histPLRows, histARRRows, histCashRows, deptActRows, deptLiveRows,
            billRows, revTypeActRows, revTypeLiveRows, fy28Rows,
            deptBudRows, deptFy28Rows, revBudRows, revFy28Rows,
-           hcSnapRows, hcFcstRows] = await Promise.all([
+           hcSnapRows, hcFcstRows, hcQtrSnapRows] = await Promise.all([
       execSQL(Q_BUDGET),
       execSQL(Q_ACTUALS),
       execSQL(Q_LIVE_MODEL),
@@ -2356,6 +2371,7 @@ async function init() {
       execSQL(Q_QTR_REV_FY28),
       execSQL(Q_HC_SNAP),
       execSQL(Q_HC_FCST),
+      execSQL(Q_HC_QTR_SNAP),
     ]);
 
     const bud    = makeAccessors(processForcast(budRows));
@@ -2384,7 +2400,7 @@ async function init() {
     buildExec(bud, blended, arr, kpi, cash, billings, fy28);
     buildPL(bud, blended, fy28);
     buildQtrDept(deptActRows, deptLiveRows, deptBudRows, deptFy28Rows, monthlyRevRows, revTypeRows, revBudRows, revFy28Rows);
-    buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings, deptBudRows, deptFy28Rows, revBudRows, revFy28Rows);
+    buildQuarterly(kpi, monthlyRevRows, arrRows, cash.monthly, billings, deptBudRows, deptFy28Rows, revBudRows, revFy28Rows, hcQtrSnapRows);
     buildHC(hcSnapRows, hcFcstRows);
     buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings);
 
