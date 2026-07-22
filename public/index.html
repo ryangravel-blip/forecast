@@ -1314,12 +1314,20 @@ function renderQuarterly(mode) {
   function qBill(q) {
     if (isBud)  return kpi.budFlow('BillFall.TotalBillingsActuals', q.months[0], q.months[q.months.length-1]);
     if (isFY28) return kpi.liveFlow('BillFall.TotalBillingsActuals', q.months[0], q.months[q.months.length-1]);
-    return billings ? billings.qBill(q.months) : 0;
+    // FY27 Forecast: actuals through Jun 2026, Live Model for Jul onward
+    const actPart = q.months.filter(dt => dt <= '2026-06-30').reduce((s,dt) => s + (billings?.bill[dt]||0), 0);
+    const fstMths = q.months.filter(dt => dt >= '2026-07-01');
+    const fstPart = fstMths.length ? kpi.liveFlow('BillFall.TotalBillingsActuals', fstMths[0], fstMths[fstMths.length-1]) : 0;
+    return actPart + fstPart;
   }
   function qColl(q) {
     if (isBud)  return -1 * kpi.budFlow('BillFall.TotalCollections', q.months[0], q.months[q.months.length-1]);
     if (isFY28) return -1 * kpi.liveFlow('BillFall.TotalCollections', q.months[0], q.months[q.months.length-1]);
-    return billings ? billings.qColl(q.months) : 0;
+    // FY27 Forecast: actuals through Jun 2026, Live Model for Jul onward
+    const actPart = q.months.filter(dt => dt <= '2026-06-30').reduce((s,dt) => s + (billings?.coll[dt]||0), 0);
+    const fstMths = q.months.filter(dt => dt >= '2026-07-01');
+    const fstPart = fstMths.length ? -1 * kpi.liveFlow('BillFall.TotalCollections', fstMths[0], fstMths[fstMths.length-1]) : 0;
+    return actPart + fstPart;
   }
 
   const qs = QTRS.map(q => {
