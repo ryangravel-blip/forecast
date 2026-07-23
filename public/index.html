@@ -300,7 +300,7 @@
       <div class="table-title">
         Headcount by Department
         <div style="display:flex;gap:6px;align-items:center">
-          <span class="badge" style="background:#fef3c7;color:#92400e">Actuals = Jun 2026 Snapshot</span>
+          <span class="badge" style="background:#fef3c7;color:#92400e">Actuals = Jun 2026 Live Model</span>
           <span class="badge badge-forecast">Forecast = Live Model EOP</span>
         </div>
       </div>
@@ -590,9 +590,11 @@ const Q_QTR_REV_FY28 = `
 
 // Headcount actuals: Jul 2026 employee snapshot by dept
 const Q_HC_SNAP = `
-  SELECT COALESCE(C_PARENT_DEPT,'Other') AS DEPT, SUM("2026-06-30") AS HC
-  FROM load.finance_sandbox.mrp_employee_snap
-  WHERE EMPLOYEE_TYPE != 'Intern'
+  SELECT COALESCE(C_PARENT_DEPT,'') AS DEPT, SUM(VALUE) AS HC
+  FROM load.finance_sandbox.mrp_forecast
+  WHERE VERSION_NAME = 'Live Model'
+    AND ACCOUNT_CODE = 'Total_HC_EOM'
+    AND TIME_MONTH_END = '2026-06-30'
     AND COALESCE(C_PARENT_DEPT,'') != ''
   GROUP BY C_PARENT_DEPT
   ORDER BY C_PARENT_DEPT`;
@@ -1649,9 +1651,8 @@ function buildHC(snapRows, fcstRows) {
   // Actuals map: dept → HC
   const actMap = {};
   for (const r of snapRows) actMap[r.DEPT] = +(r.HC||0);
-  // Manual: 2 blank-dept employees assigned to G&A (+1) and Sales (+1)
-  if (actMap['G&A']  != null) actMap['G&A']  += 1;
-  if (actMap['Sales'] != null) actMap['Sales'] += 1;
+  // Engineering: subtract 5 interns (not filterable in Live Model forecast)
+  if (actMap['Engineering'] != null) actMap['Engineering'] -= 5;
 
   // Forecast map: dept → { dt → HC }
   const fcstMap = {};
@@ -1724,7 +1725,7 @@ function buildHC(snapRows, fcstRows) {
   document.getElementById('hcHead').innerHTML = head;
   document.getElementById('hcBody').innerHTML = body;
   document.getElementById('hcFootnote').textContent =
-    'Actuals: mrp_employee_snap Jun 2026 employee snapshot (Employee type only). Forecast: mrp_forecast Live Model Total_HC_EOM at each quarter/year-end. "vs Act" = change vs Jun 2026 actuals.';
+    'Actuals: mrp_forecast Live Model Total_HC_EOM Jun 2026. Engineering adjusted -5 for interns. Forecast: mrp_forecast Live Model Total_HC_EOM at each quarter/year-end. "vs Act" = change vs Jun 2026 actuals.';
 }
 
 // ─── BUILD GL DETAIL ─────────────────────────────────
