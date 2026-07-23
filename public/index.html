@@ -1144,8 +1144,8 @@ function buildExec(bud, fcst, arr, kpi, cash, billings, fy28) {
 
   // Headcount
   const budHC  = kpi.budEop('Total_HC_EOM', JAN27);
-  const fcstHC = kpi.liveEop('Total_HC_EOM', JAN27);
-  const fy28HC = kpi.liveEop('Total_HC_EOM', JAN28);
+  const fcstHC = 217; // calculated from hire/term movements
+  const fy28HC = 217; // FY28 Plan ending HC
 
   let h = '';
 
@@ -1389,11 +1389,11 @@ function renderQuarterly(mode) {
   function qHC(q) {
     const last = q.months[q.months.length-1];
     if (isBud) return kpi.budEop('Total_HC_EOM', last);
-    if (!isBud && !isFY28) {
-      // Use snap actuals for Q1 only; Q2+ use Live Model (matches HC tab Q2 End column)
-      if (last <= '2026-04-30') return +(snapHC.Q1||0);
-    }
-    return kpi.liveEop('Total_HC_EOM', last);
+    if (isFY28) return 217;
+    // FY27 Forecast: Q1 = snap actuals; Q2-Q4 = calculated from hire/term movements
+    if (last <= '2026-04-30') return +(snapHC.Q1||0);
+    const HC_CALC = {'2026-07-31':211,'2026-10-31':217,'2027-01-31':217};
+    return HC_CALC[last] ?? kpi.liveEop('Total_HC_EOM', last);
   }
 
   // Billings & Collections per quarter
@@ -2202,7 +2202,7 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings) {
   const ytdExpArr = arr.expArr;
   const ytdChurn  = arr.churn;
   const ytdEopArr = arr.eopArr;
-  const ytdHC     = kpi.budEop('Total_HC_EOM','2026-06-30');
+  const ytdHC     = 222; // Jun 2026 actuals (Live Model -5 interns)
 
   // ── FY27 RoY (Jul–Jan Live Model) ───────────────────
   const royRev    = royAcc.revTotal();
@@ -2215,7 +2215,7 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings) {
   const royExpArr = kpi.liveFlow('KPI.ExpansionARR',  LM_START, FY_END);
   const royChurn  = kpi.liveFlow('KPI.Downsell_Churn',LM_START, FY_END);
   const royEopArr = kpi.liveEop('KPI.Exiting_ARR', JAN27);
-  const royHC     = kpi.liveEop('Total_HC_EOM', JAN27);
+  const royHC     = 217; // Jan 2027 calculated from hire/term movements
 
   // ── YE Totals ────────────────────────────────────────
   const yeRev    = ytdRev + royRev;
@@ -2427,7 +2427,7 @@ function buildBridge(ytdAcc, royAcc, arr, kpi, cash, hist, billings) {
     'YTD = Feb–Jun 2026 actuals (mrp_financials + customer_month). RoY = Jul 2026–Jan 2027 Live Model. ' +
     'RoY/YTD multiples show how much more activity falls in the back 8 months vs. front 4 months of the fiscal year. ' +
     'P&L history available FY24–FY26 (mrp_financials). ARR & Cash history available FY24–FY26. ' +
-    'Cash Burn = change in Cash + Equity balance (mrp_cash). HC EOP = Jan 2027 Live Model; YTD HC = Budget proxy.';
+    'Cash Burn = change in Cash + Equity balance (mrp_cash). HC EOP = Jan 2027 calculated from hire/term movements (217). Jun 2026 actuals = 222.';
 }
 
 // ─── BUILD VENDOR DETAIL ─────────────────────────────
