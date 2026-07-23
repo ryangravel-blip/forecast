@@ -301,7 +301,7 @@
         Headcount by Department
         <div style="display:flex;gap:6px;align-items:center">
           <span class="badge" style="background:#fef3c7;color:#92400e">Actuals = Jun 2026 Live Model</span>
-          <span class="badge badge-forecast">Forecast = Live Model EOP</span>
+          <span class="badge badge-forecast">Q2–FY28 = calculated from hires/terms</span>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -1654,13 +1654,17 @@ function buildHC(snapRows, fcstRows) {
   // Engineering: subtract 5 interns (not filterable in Live Model forecast)
   if (actMap['Engineering'] != null) actMap['Engineering'] -= 5;
 
-  // Forecast map: dept → { dt → HC }
-  const fcstMap = {};
-  for (const r of fcstRows) {
-    const d = String(r.DT).slice(0,10);
-    if (!fcstMap[r.DEPT]) fcstMap[r.DEPT] = {};
-    fcstMap[r.DEPT][d] = +(r.HC||0);
-  }
+  // Calculated HC by dept/quarter: Jun actuals + hire/term movements + Aug reclass
+  const fcstMap = {
+    'COGS: Infrastructure': { '2026-07-31':8,  '2026-10-31':8,  '2027-01-31':8,  '2028-01-31':8  },
+    'COGS: Services':       { '2026-07-31':37, '2026-10-31':32, '2027-01-31':32, '2028-01-31':32 },
+    'Customer Success':     { '2026-07-31':14, '2026-10-31':15, '2027-01-31':15, '2028-01-31':15 },
+    'Engineering':          { '2026-07-31':61, '2026-10-31':61, '2027-01-31':61, '2028-01-31':61 },
+    'G&A':                  { '2026-07-31':24, '2026-10-31':25, '2027-01-31':25, '2028-01-31':25 },
+    'Marketing':            { '2026-07-31':15, '2026-10-31':15, '2027-01-31':15, '2028-01-31':15 },
+    'Product':              { '2026-07-31':12, '2026-10-31':18, '2027-01-31':18, '2028-01-31':18 },
+    'Sales':                { '2026-07-31':40, '2026-10-31':43, '2027-01-31':43, '2028-01-31':43 },
+  };
 
   const PERIODS = [
     { label:'Q2 End',     sub:"Jul '26",  dt:'2026-07-31' },
@@ -1725,7 +1729,7 @@ function buildHC(snapRows, fcstRows) {
   document.getElementById('hcHead').innerHTML = head;
   document.getElementById('hcBody').innerHTML = body;
   document.getElementById('hcFootnote').textContent =
-    'Actuals: mrp_forecast Live Model Total_HC_EOM Jun 2026. Engineering adjusted -5 for interns. Forecast: mrp_forecast Live Model Total_HC_EOM at each quarter/year-end. "vs Act" = change vs Jun 2026 actuals.';
+    'Jun 2026 actuals: Live Model (Engineering −5 interns). Q2–FY28: calculated from Jun baseline + hire/term movements. Aug reclass: 5 heads COGS: Services → Product. Forecast: mrp_forecast Live Model Total_HC_EOM at each quarter/year-end. "vs Act" = change vs Jun 2026 actuals.';
 }
 
 // ─── BUILD GL DETAIL ─────────────────────────────────
